@@ -38,6 +38,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #endif
 
+#include <cfloat>
 #include <format>
 #include <span>
 
@@ -1664,7 +1665,10 @@ void RTGL1::GltfImporter::ParseFile( cgltf_data*               data,
                     l_insert_cutframe( result.animcamera.quaternion, cutframe_timekey );
                     l_insert_cutframe( result.animcamera.fovYRadians, cutframe_timekey );
 #ifndef NDEBUG
-                    static_assert( sizeof( AnimationData ) == 96,
+                    static_assert( sizeof( AnimationData ) ==
+                                       sizeof( result.animcamera.position ) +
+                                           sizeof( result.animcamera.quaternion ) +
+                                           sizeof( result.animcamera.fovYRadians ),
                                    "if adding a new AnimationChannel, add it also here" );
 #endif
                 }

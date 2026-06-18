@@ -295,6 +295,7 @@ endif()
 
 # Json parser - glaze
 add_library(GlazeWrapper STATIC "Source/JsonParser.cpp")
+set_target_properties(GlazeWrapper PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_subdirectory(Source/glaze)
 target_include_directories(GlazeWrapper PRIVATE "Include")
 target_link_libraries(GlazeWrapper PRIVATE glaze::glaze)

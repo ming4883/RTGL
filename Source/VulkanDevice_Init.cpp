@@ -284,6 +284,16 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         cmdManager,
         *info );
 
+    auto gpuLuid = [ & ]() -> std::optional< uint64_t > {
+#ifdef RG_USE_DX12
+        if( dxgi::DX12Supported() )
+        {
+            return physDevice->GetLUID();
+        }
+#endif
+        return std::nullopt;
+    }();
+
     swapchain = std::make_shared< Swapchain >(
         device, 
         surface, 
@@ -293,7 +303,7 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         framebuffers,
         nvDlss3dx12,
         amdFsr3dx12,
-        physDevice->GetLUID() );
+        gpuLuid );
     
     if( LibConfig().developerMode )
     {
