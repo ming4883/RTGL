@@ -185,6 +185,7 @@ VkCommandBuffer RTGL1::VulkanDevice::BeginFrame( const RgStartFrameInfo& info )
         fluidGravity = fluidInfo.gravity;
         fluidColor   = fluidInfo.color;
     }
+#ifdef RG_USE_IMGUI
     if( debugWindows )
     {
         if( !debugWindows->PrepareForFrame( frameIndex, info.vsync ) )
@@ -193,6 +194,7 @@ VkCommandBuffer RTGL1::VulkanDevice::BeginFrame( const RgStartFrameInfo& info )
             observer.reset();
         }
     }
+#endif
     if( devmode )
     {
         devmode->primitivesTable.clear();
@@ -1139,6 +1141,7 @@ void RTGL1::VulkanDevice::EndFrame( VkCommandBuffer cmd, FramebufferImageIndex r
     const VkSemaphore initFrameFinished = currentFrameState.GetSemaphoreForWaitAndRemove();
 
     // present debug window
+#ifdef RG_USE_IMGUI
     if( debugWindows && !debugWindows->IsMinimized() )
     {
         VkCommandBuffer debugCmd = cmdManager->StartGraphicsCmd();
@@ -1169,6 +1172,7 @@ void RTGL1::VulkanDevice::EndFrame( VkCommandBuffer cmd, FramebufferImageIndex r
         vkQueuePresentKHR( queues->GetGraphics(), &presentInfo );
         debugWindows->OnQueuePresent( r );
     }
+#endif
 
     if( nvDlss3dx12 )
     {

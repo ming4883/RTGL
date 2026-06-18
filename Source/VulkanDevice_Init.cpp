@@ -297,6 +297,7 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     
     if( LibConfig().developerMode )
     {
+#ifdef RG_USE_IMGUI
         debugWindows = std::make_shared< DebugWindows >( 
             instance,
             physDevice->Get(),
@@ -309,6 +310,7 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         devmode = std::make_unique<Devmode>();
 
         observer = std::make_unique< FolderObserver >( ovrdFolder );
+#endif
     }
 
     // for world samplers with modifyable lod biad
