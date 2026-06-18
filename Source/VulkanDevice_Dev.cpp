@@ -20,6 +20,35 @@
 
 #include "VulkanDevice.h"
 
+#ifndef RG_USE_IMGUI
+
+bool RTGL1::VulkanDevice::Dev_IsDevmodeInitialized() const
+{
+    return false;
+}
+
+void RTGL1::VulkanDevice::Dev_Draw() const {}
+
+void RTGL1::VulkanDevice::Dev_Override( RgStartFrameInfo&,
+                                        RgStartFrameRenderResolutionParams&,
+                                        RgStartFrameFluidParams& ) const
+{
+}
+
+void RTGL1::VulkanDevice::Dev_Override( RgCameraInfo& ) const {}
+
+void RTGL1::VulkanDevice::Dev_Override( RgDrawFrameIlluminationParams&,
+                                        RgDrawFrameTonemappingParams&,
+                                        RgDrawFrameTexturesParams& ) const
+{
+}
+
+void RTGL1::VulkanDevice::Dev_TryBreak( const char*, bool ) {}
+
+void RTGL1::VulkanDevice::DrawEndUserWarnings() {}
+
+#else
+
 #include "Matrix.h"
 
 #include "Generated/ShaderCommonC.h"
@@ -1524,3 +1553,5 @@ void RTGL1::VulkanDevice::DrawEndUserWarnings()
 
     UploadMeshPrimitive( &warnPlaque, &prim );
 }
+
+#endif

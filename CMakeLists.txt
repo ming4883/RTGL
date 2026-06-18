@@ -70,14 +70,12 @@ set(Sources
     "Source/Bloom.cpp"
     "Source/Sharpening.cpp"
     "Source/DLSS2.cpp"
-    "Source/DLSS3_DX12.cpp"
     "Source/HaltonSequence.cpp"
     "Source/LensFlares.cpp"
     "Source/DecalManager.cpp"
     "Source/EffectBase.cpp"
     "Source/LightGrid.cpp"
     "Source/FSR2.cpp"
-    "Source/FSR3_DX12.cpp"
     "Source/Stb/stb_image.cpp"
     "Source/Stb/stb_image_write.cpp"
     "Source/ImageLoaderDev.cpp"
@@ -94,8 +92,6 @@ set(Sources
     "Source/VulkanDevice_Dev.cpp"
     "Source/SceneMeta.cpp"
     "Source/Fluid.cpp"
-    "Source/DX12_Swapchain.cpp"
-    "Source/DX12_Vulkan.cpp"
 )
 
 
@@ -133,6 +129,15 @@ option(RG_WITH_DX12             "Build RTGL1 with DX12 features"            ON)
 option(RG_WITH_NATIVE_DLSS      "Build RTGL1 with native DLSS2"             ON)
 
 option(RG_WITH_EXAMPLES         "Build with examples executable"            ON)
+
+if (RG_WITH_DX12)
+    list(APPEND Sources
+        "Source/DLSS3_DX12.cpp"
+        "Source/FSR3_DX12.cpp"
+        "Source/DX12_Swapchain.cpp"
+        "Source/DX12_Vulkan.cpp"
+    )
+endif()
 
 
 # for KTX-Software
@@ -174,11 +179,17 @@ endif()
 
 
 # Vulkan
-set(VulkanSdkDir "Source/VulkanSDK/1.3.280.0")
-message(STATUS "Adding Vulkan from ${VulkanSdkDir}")
 add_library(Vulkan INTERFACE)
-target_include_directories(Vulkan INTERFACE "${VulkanSdkDir}/Include")
-target_link_libraries(Vulkan INTERFACE "${CMAKE_SOURCE_DIR}/${VulkanSdkDir}/Lib/vulkan-1.lib")
+if (WIN32)
+    set(VulkanSdkDir "Source/VulkanSDK/1.3.280.0")
+    message(STATUS "Adding Vulkan from ${VulkanSdkDir}")
+    target_include_directories(Vulkan INTERFACE "${VulkanSdkDir}/Include")
+    target_link_libraries(Vulkan INTERFACE "${CMAKE_SOURCE_DIR}/${VulkanSdkDir}/Lib/vulkan-1.lib")
+else()
+    find_package(Vulkan REQUIRED)
+    message(STATUS "Adding system Vulkan")
+    target_link_libraries(Vulkan INTERFACE Vulkan::Vulkan)
+endif()
 
 
 # DirectX 12
@@ -247,6 +258,7 @@ endif()
 
 # GLM
 target_include_directories(RayTracedGL1 PRIVATE Source/glm)
+
 
 # KTX
 target_include_directories(RayTracedGL1 PRIVATE "Source/KTX/include")

@@ -32,8 +32,10 @@
 
 #include <algorithm>
 #include <cstring>
-#include <d3d12.h>
-#include <d3dx12.h>
+#ifdef RG_USE_DX12
+    #include <d3d12.h>
+    #include <d3dx12.h>
+#endif
 
 namespace RTGL1
 {
@@ -754,6 +756,7 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
     FramebufferImageIndex accum       = FB_IMAGE_INDEX_FINAL;
     bool                  needHudOnly = false;
     {
+#ifdef RG_USE_DX12
         auto l_todx12 = [ this, frameIndex ]( VkCommandBuffer vkcmd,
                                               auto& technique ) -> ID3D12GraphicsCommandList* {
             if( !dxgi::HasDX12Instance() )
@@ -824,10 +827,12 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
                                           renderResolution.GetResolutionState() );
             return vkcmd;
         };
+#endif
 
         // upscale finalized image
         if( renderResolution.IsNvDlssEnabled() )
         {
+#ifdef RG_USE_DX12
             if( nvDlss3dx12 && swapchain->WithDLSS3FrameGeneration() )
             {
                 ID3D12GraphicsCommandList* dx12cmd = l_todx12( cmd, *nvDlss3dx12 );
@@ -853,7 +858,9 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
 
                 cmd = l_tovk( dx12cmd, *nvDlss3dx12 );
             }
-            else if( nvDlss2 )
+            else
+#endif
+            if( nvDlss2 )
             {
                 accum = nvDlss2->Apply( cmd,
                                         frameIndex,
@@ -870,6 +877,7 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
         }
         else if( renderResolution.IsAmdFsr2Enabled() )
         {
+#ifdef RG_USE_DX12
             if( amdFsr3dx12 && swapchain->WithFSR3FrameGeneration() )
             {
                 ID3D12GraphicsCommandList* dx12cmd = l_todx12( cmd, *amdFsr3dx12 );
@@ -897,7 +905,9 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
 
                 cmd = l_tovk( dx12cmd, *amdFsr3dx12 );
             }
-            else if( amdFsr2 )
+            else
+#endif
+            if( amdFsr2 )
             {
                 accum = amdFsr2->Apply( cmd,
                                         frameIndex,
@@ -1027,6 +1037,7 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
                                          renderResolution.UpscaledHeight(),
                                          swapchain->IsHDREnabled() );
 
+#ifdef RG_USE_DX12
             FramebufferImageIndex todx12[] = { FB_IMAGE_INDEX_HUD_ONLY };
             Framebuf_CopyVkToDX12( cmd,
                                    frameIndex,
@@ -1034,6 +1045,7 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
                                    renderResolution.UpscaledWidth(),
                                    renderResolution.UpscaledHeight(),
                                    todx12 );
+#endif
         }
     }
 
@@ -1170,6 +1182,7 @@ void RTGL1::VulkanDevice::EndFrame( VkCommandBuffer cmd, FramebufferImageIndex r
 
 
     // present
+#ifdef RG_USE_DX12
     if( swapchain->WithDXGI() )
     {
         [ & ] {
@@ -1259,6 +1272,7 @@ void RTGL1::VulkanDevice::EndFrame( VkCommandBuffer cmd, FramebufferImageIndex r
         }();
     }
     else
+#endif
     {
         // copy to swapchain's back buffer
         {

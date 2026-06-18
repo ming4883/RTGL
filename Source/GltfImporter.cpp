@@ -779,8 +779,8 @@ namespace
 #if 1
         // SHIPPING_HACK: if original game texture referenced in gltf, 
         bool trackOriginalTexture = false;
-        if( fullPaths[ TEXTURE_ALBEDO_ALPHA_INDEX ].native().find( TEXTURES_FOLDER_JUNCTION_W ) !=
-            std::wstring::npos )
+        if( fullPaths[ TEXTURE_ALBEDO_ALPHA_INDEX ].generic_string().find(
+                TEXTURES_FOLDER_JUNCTION ) != std::string::npos )
         {
             {
                 // e.g. "rt/scenes/myscene/mat_junction/floor.tga"
@@ -795,7 +795,7 @@ namespace
                     {
                         relname /= part;
                     }
-                    else if( part == TEXTURES_FOLDER_JUNCTION_W )
+                    else if( part == std::filesystem::path{ TEXTURES_FOLDER_JUNCTION } )
                     {
                         ok = true;
                     }

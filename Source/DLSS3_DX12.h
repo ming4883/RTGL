@@ -99,5 +99,52 @@ private:
     sl::FrameToken* m_frameToken{ nullptr };
 };
 
+#ifndef RG_USE_DX12
+inline void DLSS3_DX12::LoadSDK( const char* ) {}
+inline void DLSS3_DX12::UnloadSDK() {}
+inline auto DLSS3_DX12::MakeInstance( uint64_t, bool ) -> std::expected< DLSS3_DX12*, const char* >
+{
+    return std::unexpected( "DX12 support is disabled" );
 }
+inline DLSS3_DX12::~DLSS3_DX12() = default;
+inline void DLSS3_DX12::CopyVkInputsToDX12( VkCommandBuffer,
+                                            uint32_t,
+                                            const Framebuffers&,
+                                            const ResolutionState& )
+{
+}
+inline auto DLSS3_DX12::Apply( ID3D12CommandList*,
+                               uint32_t,
+                               Framebuffers&,
+                               const RenderResolutionHelper&,
+                               RgFloat2D,
+                               double,
+                               bool,
+                               const Camera&,
+                               uint32_t,
+                               bool ) -> std::optional< FramebufferImageIndex >
+{
+    return std::nullopt;
+}
+inline void DLSS3_DX12::CopyDX12OutputToVk( VkCommandBuffer,
+                                            uint32_t,
+                                            const Framebuffers&,
+                                            const ResolutionState& )
+{
+}
+inline auto DLSS3_DX12::GetOptimalSettings( uint32_t               userWidth,
+                                            uint32_t               userHeight,
+                                            RgRenderResolutionMode ) const
+    -> std::pair< uint32_t, uint32_t >
+{
+    return { userWidth, userHeight };
+}
+inline void DLSS3_DX12::Reflex_SimStart( uint32_t ) {}
+inline void DLSS3_DX12::Reflex_SimEnd() {}
+inline void DLSS3_DX12::Reflex_RenderStart() {}
+inline void DLSS3_DX12::Reflex_RenderEnd() {}
+inline void DLSS3_DX12::Reflex_PresentStart() {}
+inline void DLSS3_DX12::Reflex_PresentEnd() {}
+#endif
 
+}

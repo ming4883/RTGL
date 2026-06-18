@@ -40,6 +40,7 @@
 #include <cassert>
 #include <fstream>
 #include <queue>
+#include <ranges>
 #include <span>
 #include <type_traits>
 
@@ -803,9 +804,9 @@ struct GltfTextures
         allocImages.resize( RTGL1::TEXTURES_PER_MATERIAL_COUNT * sceneMaterials.size() );
         allocTextures.resize( RTGL1::TEXTURES_PER_MATERIAL_COUNT * sceneMaterials.size() );
 
-        strings  = rgl::span_counted( std::span( allocStrings ) );
-        images   = rgl::span_counted( std::span( allocImages ) );
-        textures = rgl::span_counted( std::span( allocTextures ) );
+        strings  = rgl::span_counted< std::string >( std::span( allocStrings ) );
+        images   = rgl::span_counted< cgltf_image >( std::span( allocImages ) );
+        textures = rgl::span_counted< cgltf_texture >( std::span( allocTextures ) );
 
         constexpr auto makeSampler =
             []( RgSamplerAddressMode addrU, RgSamplerAddressMode addrV, RgSamplerFilter filter ) {
@@ -841,7 +842,7 @@ struct GltfTextures
             }
         }
 
-        auto findGltfSampler = [ this ]( const RTGL1::TextureManager::ExportResult& r ) {
+        auto findGltfSampler = [ this, makeSampler ]( const RTGL1::TextureManager::ExportResult& r ) {
             cgltf_sampler target = makeSampler( r.addressModeU, r.addressModeV, r.filter );
             for( cgltf_sampler& found : allocSamplers )
             {
@@ -1479,7 +1480,7 @@ bool CreateDir( const std::filesystem::path& folder, bool forceEmpty )
     std::error_code ec;
 
     create_directories( folder, ec );
-    if( ec && forceEmpty )
+    if( ec )
     {
         RTGL1::debug::Warning(
             "std::filesystem::create_directories error: {} - {}", ec.message(), folder.string() );
@@ -1581,7 +1582,7 @@ bool CreateJunction( const std::filesystem::path& junction_aspath,
 #else
     std::error_code ec;
     create_directories( junction_aspath, ec );
-    if( ec && forceEmpty )
+    if( ec )
     {
         RTGL1::debug::Warning(
             "std::filesystem::create_directories error: {} - {}", ec.message(), junction );
@@ -1620,7 +1621,7 @@ bool PrepareFolder( const std::filesystem::path& gltfPath,
             return false;
         }
 #else
-        debug::Warning( "Folder already exists, overwrite disabled: {}", folder.string() );
+        RTGL1::debug::Warning( "Folder already exists, overwrite disabled: {}", folder.string() );
         return false;
 #endif // RG_USE_SURFACE_WIN32
     }

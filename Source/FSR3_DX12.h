@@ -93,4 +93,46 @@ private:
     FfxFrameGenerationConfig* m_framegenConfig{};
 };
 
+#ifndef RG_USE_DX12
+inline void FSR3_DX12::LoadSDK() {}
+inline void FSR3_DX12::UnloadSDK() {}
+inline auto FSR3_DX12::MakeInstance( uint64_t ) -> std::expected< FSR3_DX12*, const char* >
+{
+    return std::unexpected( "DX12 support is disabled" );
+}
+inline FSR3_DX12::~FSR3_DX12() = default;
+inline void FSR3_DX12::CopyVkInputsToDX12( VkCommandBuffer,
+                                           uint32_t,
+                                           const Framebuffers&,
+                                           const ResolutionState& )
+{
+}
+inline auto FSR3_DX12::Apply( ID3D12CommandList*,
+                              uint32_t,
+                              const Framebuffers&,
+                              const RenderResolutionHelper&,
+                              RgFloat2D,
+                              double,
+                              float,
+                              float,
+                              float,
+                              bool,
+                              float,
+                              bool ) -> std::optional< FramebufferImageIndex >
+{
+    return std::nullopt;
+}
+inline void FSR3_DX12::CopyDX12OutputToVk( VkCommandBuffer,
+                                           uint32_t,
+                                           const Framebuffers&,
+                                           const ResolutionState& )
+{
+}
+inline RgFloat2D FSR3_DX12::GetJitter( const ResolutionState&, uint32_t ) const
+{
+    return {};
+}
+inline void FSR3_DX12::OnFramebuffersSizeChange( const ResolutionState& ) {}
+#endif
+
 }
