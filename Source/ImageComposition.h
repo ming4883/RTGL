@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <cfloat>
+
 #include "Common.h"
 #include "ShaderManager.h"
 #include "Framebuffers.h"

@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 
 namespace RTGL1

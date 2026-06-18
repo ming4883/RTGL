@@ -32,7 +32,9 @@
 
 #include "Generated/ShaderCommonC.h"
 
-#include <d3d12.h>
+#ifdef RG_USE_DX12
+    #include <d3d12.h>
+#endif
 
 namespace
 {
@@ -241,10 +243,12 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
 
     // create VkSurfaceKHR using user's function
     surface = GetSurfaceFromUser( instance, *info );
+#ifdef RG_USE_SURFACE_WIN32
     if( info->pWin32SurfaceInfo && info->pWin32SurfaceInfo->hwnd )
     {
         dxgi::SetHwnd( info->pWin32SurfaceInfo->hwnd );
     }
+#endif
 
 
     // create selected physical device

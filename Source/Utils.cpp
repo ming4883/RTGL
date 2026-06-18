@@ -32,21 +32,23 @@ using namespace RTGL1;
 
 auto Utils::FindBinFolder() -> std::filesystem::path
 {
+    std::filesystem::path rtglDllPath;
+
 #if defined( _WIN32 )
-    wchar_t rtglDllPath[ MAX_PATH ]{};
-    GetModuleFileNameW( GetModuleHandle( RG_LIBRARY_NAME ), rtglDllPath, MAX_PATH );
+    wchar_t path[ MAX_PATH ]{};
+    GetModuleFileNameW( GetModuleHandle( RG_LIBRARY_NAME ), path, MAX_PATH );
+    rtglDllPath = path;
 #elif defined( __linux__ )
-    wchar_t rtglDllPath[ PATH_MAX ]{};
     Dl_info dl_info{};
-    if( dladdr( ( void* )GetFolderPath, &dl_info ) )
+    if( dladdr( reinterpret_cast< void* >( &Utils::FindBinFolder ), &dl_info ) )
     {
         if( dl_info.dli_fname )
         {
-            std::mbstowcs( rtglDllPath, dl_info.dli_fname, PATH_MAX );
+            rtglDllPath = dl_info.dli_fname;
         }
     }
 #endif
-    auto binFolder = std::filesystem::path{ rtglDllPath }.parent_path();
+    auto binFolder = rtglDllPath.parent_path();
     if( binFolder.filename() == "debug" )
     {
         binFolder = binFolder.parent_path();

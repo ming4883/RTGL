@@ -30,7 +30,9 @@ namespace RTGL1
 VK_INSTANCE_DEBUG_UTILS_FUNCTION_LIST
 VK_DEVICE_FUNCTION_LIST
 VK_DEVICE_DEBUG_UTILS_FUNCTION_LIST
+#ifdef _WIN32
 VK_DEVICE_WIN32_FUNCTION_LIST
+#endif
 #undef VK_EXTENSION_FUNCTION
 }
 
@@ -64,6 +66,7 @@ void RTGL1::InitDeviceExtensionFunctions_DebugUtils( VkDevice device )
 #undef VK_EXTENSION_FUNCTION
 }
 
+#ifdef _WIN32
 bool RTGL1::InitDeviceExtensionFunctions_Win32( VkDevice device )
 {
     //
@@ -80,6 +83,7 @@ bool RTGL1::InitDeviceExtensionFunctions_Win32( VkDevice device )
     return true;
 #undef VK_EXTENSION_FUNCTION
 }
+#endif
 
 void RTGL1::AddDebugName( VkDevice device, uint64_t obj, VkObjectType type, const char* pName )
 {

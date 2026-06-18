@@ -31,6 +31,15 @@
 
 #include "RTGL1/RTGL1.h"
 
+#ifdef RG_USE_SURFACE_XLIB
+    #ifdef None
+        #undef None
+    #endif
+    #ifdef Success
+        #undef Success
+    #endif
+#endif
+
 #include "DebugPrint.h"
 
 namespace RTGL1
@@ -61,23 +70,29 @@ constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
     VK_EXTENSION_FUNCTION( vkCmdBeginDebugUtilsLabelEXT ) \
     VK_EXTENSION_FUNCTION( vkCmdEndDebugUtilsLabelEXT )
 
-#define VK_DEVICE_WIN32_FUNCTION_LIST                     \
-    VK_EXTENSION_FUNCTION( vkGetMemoryWin32HandleKHR )    \
-    VK_EXTENSION_FUNCTION( vkGetSemaphoreWin32HandleKHR ) \
-    VK_EXTENSION_FUNCTION( vkGetMemoryWin32HandlePropertiesKHR )        
+#ifdef _WIN32
+    #define VK_DEVICE_WIN32_FUNCTION_LIST                     \
+        VK_EXTENSION_FUNCTION( vkGetMemoryWin32HandleKHR )    \
+        VK_EXTENSION_FUNCTION( vkGetSemaphoreWin32HandleKHR ) \
+        VK_EXTENSION_FUNCTION( vkGetMemoryWin32HandlePropertiesKHR )
+#endif
 
 // extension functions' declarations
 #define VK_EXTENSION_FUNCTION( fname ) extern PFN_##fname s##fname;
 VK_INSTANCE_DEBUG_UTILS_FUNCTION_LIST
 VK_DEVICE_FUNCTION_LIST
 VK_DEVICE_DEBUG_UTILS_FUNCTION_LIST
+#ifdef _WIN32
 VK_DEVICE_WIN32_FUNCTION_LIST
+#endif
 #undef VK_EXTENSION_FUNCTION
 
 void InitInstanceExtensionFunctions_DebugUtils( VkInstance instance );
 void InitDeviceExtensionFunctions( VkDevice device );
 void InitDeviceExtensionFunctions_DebugUtils( VkDevice device );
+#ifdef _WIN32
 bool InitDeviceExtensionFunctions_Win32( VkDevice device );
+#endif
 
 #pragma endregion
 

@@ -30,7 +30,9 @@ SOFTWARE.
 #include <expected>
 #include <optional>
 
-#include "d3d12.h"
+#ifdef RG_USE_DX12
+    #include "d3d12.h"
+#endif
 
 // forward declare
 struct ID3D12Device;
@@ -157,3 +159,87 @@ bool Framebuf_HasSharedImages();
 // Look Framebuf_CopyVkToDX12 / Framebuf_CopyDX12ToVk in DX12_CopyFramebuf.h
 
 }
+
+#ifndef RG_USE_DX12
+namespace RTGL1::dxgi
+{
+inline bool DX12Supported() { return false; }
+inline bool HasDX12Instance() { return false; }
+inline bool HasDX12SwapchainInstance() { return false; }
+
+inline void SetHwnd( void* ) {}
+inline void SetVk( VkDevice, VkPhysicalDevice ) {}
+
+inline bool InitAsFSR3( uint64_t, PFN_CreateSwapchain )
+{
+    return false;
+}
+inline bool InitAsDLFG( uint64_t, PFN_SetD3D12, PFN_UpgradeInterface, PFN_GetNativeInterface )
+{
+    return false;
+}
+inline auto InitAsRawDXGI( uint64_t ) -> std::expected< bool, const char* >
+{
+    return std::unexpected( "DX12 support is disabled" );
+}
+inline bool HasRawDXGI() { return false; }
+inline void Destroy() {}
+inline auto GetD3D12Device() -> ID3D12Device* { return nullptr; }
+inline auto GetD3D12CommandQueue() -> ID3D12CommandQueue* { return nullptr; }
+inline auto GetAdapterLUID() -> uint64_t { return 0; }
+inline void WaitAndPrepareForFrame( ID3D12Fence*, HANDLE, uint64_t ) {}
+inline auto CreateD3D12CommandList( uint32_t ) -> ID3D12GraphicsCommandList* { return nullptr; }
+
+inline void DispatchBlit( ID3D12GraphicsCommandList*,
+                          ID3D12Resource*,
+                          ID3D12Resource*,
+                          uint32_t,
+                          uint32_t,
+                          bool )
+{
+}
+
+inline auto CreateSwapchain( uint32_t, uint32_t, uint32_t, int, int, bool ) -> uint32_t
+{
+    return 0;
+}
+inline void DestroySwapchain( bool ) {}
+inline auto GetSwapchainBack( uint32_t ) -> ID3D12Resource* { return nullptr; }
+inline auto GetSwapchainCopySrc( uint32_t* width, uint32_t* height, bool* convertToSrgb )
+    -> ID3D12Resource*
+{
+    if( width )
+    {
+        *width = 0;
+    }
+    if( height )
+    {
+        *height = 0;
+    }
+    if( convertToSrgb )
+    {
+        *convertToSrgb = false;
+    }
+    return nullptr;
+}
+inline auto GetSwapchainDxgiFormat() -> int { return 0; }
+inline auto GetSwapchainDxgiSwapchain() -> IDXGISwapChain4* { return nullptr; }
+inline void Present( ID3D12Fence*, uint64_t ) {}
+inline auto GetCurrentBackBufferIndex() -> uint32_t { return 0; }
+inline void WaitIdle() {}
+
+inline auto Semaphores_GetVkDx12Shared( SharedSemaphoreType ) -> std::optional< SharedSemaphore >
+{
+    return std::nullopt;
+}
+
+inline void Framebuf_CreateDX12Resources( CommandBufferManager&,
+                                          MemoryAllocator&,
+                                          const ResolutionState& )
+{
+}
+inline void Framebuf_Destroy() {}
+inline auto Framebuf_GetVkDx12Shared( int ) -> SharedImage { return {}; }
+inline bool Framebuf_HasSharedImages() { return false; }
+}
+#endif
