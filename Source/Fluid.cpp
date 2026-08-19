@@ -173,6 +173,7 @@ RTGL1::Fluid::Fluid( VkDevice                                device,
     : m_device{ device }
     , m_storageFramebuffer{ std::move( storageFramebuffer ) }
     , m_cmdManager{ std::move( cmdManager ) }
+    , m_allocator{ allocator }
     , m_generateIdToSource{ allocator }
     , m_sources{ allocator }
     , m_particleRadius{ std::clamp( particleRadius, 0.01f, 1.0f ) }
@@ -1147,10 +1148,6 @@ void RTGL1::Fluid::CreateFramebuffers( uint32_t width, uint32_t height )
         assert( m_storageFramebuffer->GetImageView( FB_IMAGE_INDEX_DEPTH_FLUID, 0 ) ==
                 m_storageFramebuffer->GetImageView( FB_IMAGE_INDEX_DEPTH_FLUID, 1 ) );
 
-        auto [ format, mem ] =
-            m_storageFramebuffer->GetImageForAlias( FB_IMAGE_INDEX_DEPTH_FLUID, //
-                                                    0 );
-
         // assuming that width, height match!
         {
             const auto info = VkImageCreateInfo{
@@ -1172,14 +1169,20 @@ void RTGL1::Fluid::CreateFramebuffers( uint32_t width, uint32_t height )
             SET_DEBUG_NAME( m_device,
                             m_depth.image,
                             VK_OBJECT_TYPE_IMAGE,
-                            "DepthFluid - Aliased image for raster pass" );
+                            "DepthFluid image for raster pass" );
         }
-        // alias already allocated float32 memory
+        // dedicated allocation: depth-stencil attachment requirements may exceed
+        // the aliased R32_SFLOAT storage image's memory size
         {
-            assert( format == VK_FORMAT_R32_SFLOAT &&
-                    RASTER_PASS_DEPTH_FORMAT == VK_FORMAT_D32_SFLOAT );
+            VkMemoryRequirements memReqs;
+            vkGetImageMemoryRequirements( m_device, m_depth.image, &memReqs );
 
-            VkResult r = vkBindImageMemory( m_device, m_depth.image, mem, 0 );
+            m_depth.memory = m_allocator->AllocDedicated( memReqs,
+                                                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                                          MemoryAllocator::AllocType::DEFAULT,
+                                                          "DepthFluid memory" );
+
+            VkResult r = vkBindImageMemory( m_device, m_depth.image, m_depth.memory, 0 );
             VK_CHECKERROR( r );
         }
         {
@@ -1246,6 +1249,11 @@ void RTGL1::Fluid::DestroyFramebuffers()
     {
         vkDestroyImageView( m_device, m_depth.view, nullptr );
         vkDestroyImage( m_device, m_depth.image, nullptr );
+        if( m_depth.memory != VK_NULL_HANDLE )
+        {
+            MemoryAllocator::FreeDedicated( m_device, m_depth.memory );
+            m_depth.memory = VK_NULL_HANDLE;
+        }
         m_depth.view  = VK_NULL_HANDLE;
         m_depth.image = VK_NULL_HANDLE;
     }
