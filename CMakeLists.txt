@@ -76,6 +76,7 @@ set(Sources
     "Source/EffectBase.cpp"
     "Source/LightGrid.cpp"
     "Source/FSR2.cpp"
+    "Source/XeSS_VK.cpp"
     "Source/Stb/stb_image.cpp"
     "Source/Stb/stb_image_write.cpp"
     "Source/ImageLoaderDev.cpp"
@@ -284,6 +285,21 @@ endif()
 
 # FSR2
 target_include_directories(RayTracedGL1 PRIVATE "Source/FSR2/include" )
+
+# XeSS
+set(XESS_SDK_PATH "C:/Users/kmchan/XessSDK" CACHE PATH "Path to Intel XeSS SDK")
+if(EXISTS "${XESS_SDK_PATH}/inc/xess/xess_vk.h")
+    message(STATUS "Found XeSS SDK: ${XESS_SDK_PATH}")
+    target_include_directories(RayTracedGL1 PRIVATE "${XESS_SDK_PATH}/inc")
+    if(WIN32)
+        add_custom_command(TARGET RayTracedGL1 POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${XESS_SDK_PATH}/bin/libxess.dll"
+                $<TARGET_FILE_DIR:RayTracedGL1>)
+    endif()
+else()
+    message(FATAL_ERROR "XeSS SDK not found at ${XESS_SDK_PATH}")
+endif()
 
 # Debug windows - ImGui
 if (RG_WITH_IMGUI)

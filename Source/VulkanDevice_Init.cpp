@@ -478,6 +478,8 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         appGuid.c_str() );
 #endif
 
+    intelXess = XeSS_VK::MakeInstance( instance, device, physDevice->Get() );
+
     sharpening = std::make_shared< Sharpening >( 
         device, 
         framebuffers, 
@@ -561,6 +563,11 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         framebuffers->Subscribe( amdFsr2 );
     }
 
+    if( intelXess )
+    {
+        framebuffers->Subscribe( intelXess );
+    }
+
     if( observer )
     {
         observer->Subscribe( textureManager );
@@ -590,6 +597,7 @@ RTGL1::VulkanDevice::~VulkanDevice()
     amdFsr3dx12.reset();
     nvDlss2.reset();
     nvDlss3dx12.reset();
+    intelXess.reset();
     sharpening.reset();
     effectWipe.reset();
     effectRadialBlur.reset();
@@ -808,6 +816,14 @@ void RTGL1::VulkanDevice::CreateInstance( const RgInstanceCreateInfo& info )
         for( const char* dlssExt : d.value() )
         {
             extensions.push_back( dlssExt );
+        }
+    }
+
+    if( auto x = XeSS_VK::RequiredVulkanExtensions_Instance() )
+    {
+        for( const char* xessExt : x.value() )
+        {
+            extensions.push_back( xessExt );
         }
     }
 
@@ -1045,6 +1061,29 @@ void RTGL1::VulkanDevice::CreateDevice()
         .features = features,
     };
 
+    // XeSS can append feature structures to the pNext chain.
+    {
+        void* xessFeatureChain = XeSS_VK::GetRequiredVulkanDeviceFeaturesChain( instance, physDevice->Get() );
+        if( xessFeatureChain != nullptr )
+        {
+            // Append XeSS's chain to the end of our chain.
+            void* tail = physicalDeviceFeatures2.pNext;
+            if( tail == nullptr )
+            {
+                physicalDeviceFeatures2.pNext = xessFeatureChain;
+            }
+            else
+            {
+                VkBaseOutStructure* last = reinterpret_cast< VkBaseOutStructure* >( tail );
+                while( last->pNext != nullptr )
+                {
+                    last = last->pNext;
+                }
+                last->pNext = reinterpret_cast< VkBaseOutStructure* >( xessFeatureChain );
+            }
+        }
+    }
+
     auto deviceExtensions = std::vector{
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME,
@@ -1079,6 +1118,14 @@ void RTGL1::VulkanDevice::CreateDevice()
             }
 
             deviceExtensions.push_back( dlssExt );
+        }
+    }
+
+    if( auto x = XeSS_VK::RequiredVulkanExtensions_Device( physDevice->Get() ) )
+    {
+        for( const char* xessExt : x.value() )
+        {
+            deviceExtensions.push_back( xessExt );
         }
     }
 

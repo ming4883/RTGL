@@ -144,7 +144,8 @@ VkCommandBuffer RTGL1::VulkanDevice::BeginFrame( const RgStartFrameInfo& info )
                                 swapchain->WithFSR3FrameGeneration() ? amdFsr3dx12.get() : nullptr,
                                 nvDlss2.get(),
                                 swapchain->WithDLSS3FrameGeneration() ? nvDlss3dx12.get()
-                                                                      : nullptr );
+                                                                      : nullptr,
+                                intelXess.get() );
 
         framebuffers->PrepareForSize( renderResolution.GetResolutionState(),
                                       ( swapchain->WithDXGI() ) );
@@ -304,6 +305,17 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
             else if( amdFsr2 )
             {
                 jitter = amdFsr2->GetJitter( renderResolution.GetResolutionState(), frameId );
+            }
+            else
+            {
+                assert( 0 );
+            }
+        }
+        else if( renderResolution.IsIntelXessEnabled() )
+        {
+            if( intelXess )
+            {
+                jitter = intelXess->GetJitter( renderResolution.GetResolutionState(), frameId );
             }
             else
             {
@@ -832,7 +844,24 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
 #endif
 
         // upscale finalized image
-        if( renderResolution.IsNvDlssEnabled() )
+        if( renderResolution.IsIntelXessEnabled() )
+        {
+            if( intelXess )
+            {
+                accum = intelXess->Apply( cmd,
+                                          frameIndex,
+                                          *framebuffers,
+                                          renderResolution,
+                                          jitter,
+                                          timeDelta,
+                                          resetHistory );
+            }
+            else
+            {
+                assert( 0 );
+            }
+        }
+        else if( renderResolution.IsNvDlssEnabled() )
         {
 #ifdef RG_USE_DX12
             if( nvDlss3dx12 && swapchain->WithDLSS3FrameGeneration() )
@@ -2186,6 +2215,13 @@ bool RTGL1::VulkanDevice::IsUpscaleTechniqueAvailable( RgRenderUpscaleTechnique 
             }
             return bool( nvDlss2 );
         }
+
+        case RG_RENDER_UPSCALE_TECHNIQUE_INTEL_XESS:
+            if( frameGeneration != RG_FRAME_GENERATION_MODE_OFF )
+            {
+                return false;
+            }
+            return bool( intelXess );
 
         default: {
             throw RgException(

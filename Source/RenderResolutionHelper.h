@@ -29,6 +29,7 @@
 #include "FSR3_DX12.h"
 #include "RgException.h"
 #include "ResolutionState.h"
+#include "XeSS_VK.h"
 
 #ifdef _MSC_VER
 #pragma warning( push )
@@ -55,7 +56,8 @@ public:
                 const FSR2*                               fsr2,
                 const FSR3_DX12*                          fsr3dx12,
                 const DLSS2*                              dlss2,
-                const DLSS3_DX12*                         dlss3dx12 )
+                const DLSS3_DX12*                         dlss3dx12,
+                const XeSS_VK*                            xess )
     {
         // HACKHACK: render into something when the window is minimized
         if( windowWidth == 0 || windowHeight == 0 )
@@ -88,6 +90,12 @@ public:
                     break;
                 case RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS:
                     if( !dlss2 && !dlss3dx12 )
+                    {
+                        upscaleTechnique = RG_RENDER_UPSCALE_TECHNIQUE_NEAREST;
+                    }
+                    break;
+                case RG_RENDER_UPSCALE_TECHNIQUE_INTEL_XESS:
+                    if( !xess )
                     {
                         upscaleTechnique = RG_RENDER_UPSCALE_TECHNIQUE_NEAREST;
                     }
@@ -171,6 +179,26 @@ public:
                 }
             }
         }
+        else if( upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_INTEL_XESS )
+        {
+            assert( xess );
+            if( resolutionMode == RG_RENDER_RESOLUTION_MODE_CUSTOM )
+            {
+                renderWidth  = params.customRenderSize.width;
+                renderHeight = params.customRenderSize.height;
+            }
+            else
+            {
+                std::tie( renderWidth, renderHeight ) =
+                    xess->GetOptimalSettings( windowWidth, windowHeight, resolutionMode );
+
+                if( renderWidth == 0 || renderHeight == 0 )
+                {
+                    renderWidth  = windowWidth;
+                    renderHeight = windowHeight;
+                }
+            }
+        }
         else
         {
             if( resolutionMode == RG_RENDER_RESOLUTION_MODE_CUSTOM )
@@ -220,7 +248,14 @@ public:
     {
         return upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS;
     }
-    bool IsUpscaleEnabled() const { return IsAmdFsr2Enabled() || IsNvDlssEnabled(); }
+    bool IsIntelXessEnabled() const
+    {
+        return upscaleTechnique == RG_RENDER_UPSCALE_TECHNIQUE_INTEL_XESS;
+    }
+    bool IsUpscaleEnabled() const
+    {
+        return IsAmdFsr2Enabled() || IsNvDlssEnabled() || IsIntelXessEnabled();
+    }
 
     float GetAmdFsrSharpness() const { return 1.0f; } // 0.0 - max, 1.0 - min
 

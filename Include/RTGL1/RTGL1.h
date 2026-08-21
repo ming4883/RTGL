@@ -763,6 +763,7 @@ typedef enum RgRenderUpscaleTechnique
     RG_RENDER_UPSCALE_TECHNIQUE_NEAREST,
     RG_RENDER_UPSCALE_TECHNIQUE_AMD_FSR2,
     RG_RENDER_UPSCALE_TECHNIQUE_NVIDIA_DLSS,
+    RG_RENDER_UPSCALE_TECHNIQUE_INTEL_XESS,
 } RgRenderUpscaleTechnique;
 
 typedef enum RgFrameGenerationMode

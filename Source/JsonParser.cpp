@@ -224,6 +224,7 @@ JSON_TYPE( RTGL1::LibraryConfig )
       "developerMode", &T::developerMode
     , "vulkanValidation", &T::vulkanValidation
     , "dlssValidation", &T::dlssValidation
+    , "xessValidation", &T::xessValidation
     , "dlssForceDefaultPreset", &T::dlssForceDefaultPreset
     , "fpsMonitor", &T::fpsMonitor
     , "fsr3async", &T::fsr3async
@@ -231,8 +232,7 @@ JSON_TYPE( RTGL1::LibraryConfig )
     , "dx12Validation", &T::dx12Validation
     , "fsrValidation", &T::fsrValidation
 JSON_TYPE_END;
-// clang-format on
-static_assert( sizeof( RTGL1::LibraryConfig ) == 9, "Add definitions to parser" );
+static_assert( sizeof( RTGL1::LibraryConfig ) == 10, "Add definitions to parser" );
 
 auto RTGL1::json_parser::detail::ReadLibraryConfig( const std::filesystem::path& path )
     -> std::optional< LibraryConfig >

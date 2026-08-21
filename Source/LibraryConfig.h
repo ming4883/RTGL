@@ -36,6 +36,7 @@ struct LibraryConfig
     bool developerMode               = false;
     bool vulkanValidation            = false;
     bool dlssValidation              = false;
+    bool xessValidation              = false;
     bool fpsMonitor                  = false;
     bool fsrValidation               = false;
     bool fsr3async                   = false;
