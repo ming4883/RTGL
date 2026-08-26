@@ -33,7 +33,16 @@ enum class DisplayHDRState
 }
 
 #ifdef WIN32
+    // DisplayConfig* APIs require Win7+ headers; GZDoom builds with _WIN32_WINNT=0x0600.
+    #if !defined(_WIN32_WINNT) || _WIN32_WINNT < 0x0601
+        #undef _WIN32_WINNT
+        #undef WINVER
+        #define _WIN32_WINNT 0x0601
+        #define WINVER       0x0601
+    #endif
+
     #include <WinUser.h>
+    #include <wingdi.h>
 
 namespace RTGL1::HDR
 {

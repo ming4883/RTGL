@@ -184,7 +184,7 @@ if (WIN32)
     set(VulkanSdkDir "Source/VulkanSDK/1.3.280.0")
     message(STATUS "Adding Vulkan from ${VulkanSdkDir}")
     target_include_directories(Vulkan INTERFACE "${VulkanSdkDir}/Include")
-    target_link_libraries(Vulkan INTERFACE "${CMAKE_SOURCE_DIR}/${VulkanSdkDir}/Lib/vulkan-1.lib")
+    target_link_libraries(Vulkan INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/${VulkanSdkDir}/Lib/vulkan-1.lib")
 else()
     find_package(Vulkan REQUIRED)
     message(STATUS "Adding system Vulkan")
@@ -242,8 +242,20 @@ add_definitions(-DRG_LIBRARY_NAME="${LibraryName}")
 set_target_properties(RayTracedGL1 PROPERTIES
     OUTPUT_NAME ${LibraryName}
 )
+
+# When built as a GZDoom subproject, GZDoom defines _WIN32_WINNT=0x0600 and UNICODE/_UNICODE.
+# RTGL1 needs Win7+ DisplayConfig APIs (0x0601) and Streamline needs Win10+ WinTrust APIs (0x0A00);
+# its sources also assume ANSI Windows API entry points. Override for this target only.
+if(WIN32)
+    target_compile_definitions(RayTracedGL1 PRIVATE
+        _WIN32_WINNT=0x0A00
+        WINVER=0x0A00
+        NTDDI_VERSION=0x0A000000
+    )
+    target_compile_options(RayTracedGL1 PRIVATE /UUNICODE /U_UNICODE)
+endif()
 set_target_properties(RayTracedGL1 PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY $<IF:$<CONFIG:Debug>,${CMAKE_SOURCE_DIR}/Build/bin/debug,${CMAKE_SOURCE_DIR}/Build/bin>
+    RUNTIME_OUTPUT_DIRECTORY $<IF:$<CONFIG:Debug>,${CMAKE_BINARY_DIR}/rt/bin/debug,${CMAKE_BINARY_DIR}/rt/bin>
 )
 target_include_directories(RayTracedGL1 PUBLIC "Include")
 
