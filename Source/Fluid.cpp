@@ -1,4 +1,4 @@
-/*
+﻿/*
 
 Copyright (c) 2024 V.Shirokii
 
@@ -173,6 +173,7 @@ RTGL1::Fluid::Fluid( VkDevice                                device,
     : m_device{ device }
     , m_storageFramebuffer{ std::move( storageFramebuffer ) }
     , m_cmdManager{ std::move( cmdManager ) }
+    , m_allocator{ allocator }
     , m_generateIdToSource{ allocator }
     , m_sources{ allocator }
     , m_particleRadius{ std::clamp( particleRadius, 0.01f, 1.0f ) }
@@ -532,6 +533,117 @@ void RTGL1::Fluid::Visualize( VkCommandBuffer               cmd,
         vkCmdDraw( cmd, QUAD_VERTEX_COUNT, m_active.length(), 0, m_active.ringBegin );
     }
     vkCmdEndRenderPass( cmd );
+
+    // Copy depth from the dedicated raster pass depth image (D32_SFLOAT)
+    // to the storage framebuffer's DepthFluid image (R32_SFLOAT).
+    // This is needed because the dedicated allocation broke the memory aliasing
+    // that previously made the raster pass depth directly visible to the
+    // DepthSmooth compute shader.
+    {
+        VkImage srcDepthImage = m_depth.image;
+        VkImage dstDepthFluidImage =
+            m_storageFramebuffer->GetImage( FB_IMAGE_INDEX_DEPTH_FLUID, frameIndex );
+
+        const auto depthSubres = VkImageSubresourceRange{
+            .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
+            .baseMipLevel   = 0,
+            .levelCount     = 1,
+            .baseArrayLayer = 0,
+            .layerCount     = 1,
+        };
+        const auto colorSubres = VkImageSubresourceRange{
+            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+            .baseMipLevel   = 0,
+            .levelCount     = 1,
+            .baseArrayLayer = 0,
+            .layerCount     = 1,
+        };
+
+        // Transition src depth image from DEPTH_STENCIL_ATTACHMENT_OPTIMAL to TRANSFER_SRC_OPTIMAL
+        Utils::BarrierImage( cmd,
+                             srcDepthImage,
+                             VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                             VK_ACCESS_TRANSFER_READ_BIT,
+                             VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                             VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             depthSubres );
+
+        // Transition dst DepthFluid image from GENERAL to TRANSFER_DST_OPTIMAL
+        Utils::BarrierImage( cmd,
+                             dstDepthFluidImage,
+                             VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+                             VK_ACCESS_TRANSFER_WRITE_BIT,
+                             VK_IMAGE_LAYOUT_GENERAL,
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             colorSubres );
+
+        // Blit depth from D32_SFLOAT to R32_SFLOAT (both are 32-bit per texel)
+        const VkImageSubresourceLayers srcLayers = {
+            .aspectMask     = VK_IMAGE_ASPECT_DEPTH_BIT,
+            .mipLevel       = 0,
+            .baseArrayLayer = 0,
+            .layerCount     = 1,
+        };
+        const VkImageSubresourceLayers dstLayers = {
+            .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel       = 0,
+            .baseArrayLayer = 0,
+            .layerCount     = 1,
+        };
+        const VkOffset3D srcOffsets[ 2 ] = {
+            { .x = 0, .y = 0, .z = 0 },
+            { .x = int32_t( renderResolution.Width() ),
+              .y = int32_t( renderResolution.Height() ),
+              .z = 1 },
+        };
+        const VkOffset3D dstOffsets[ 2 ] = {
+            { .x = 0, .y = 0, .z = 0 },
+            { .x = int32_t( renderResolution.Width() ),
+              .y = int32_t( renderResolution.Height() ),
+              .z = 1 },
+        };
+        const VkImageBlit blitRegion = {
+            .srcSubresource = srcLayers,
+            .srcOffsets     = { srcOffsets[ 0 ], srcOffsets[ 1 ] },
+            .dstSubresource = dstLayers,
+            .dstOffsets     = { dstOffsets[ 0 ], dstOffsets[ 1 ] },
+        };
+        vkCmdBlitImage( cmd,
+                        srcDepthImage,
+                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                        dstDepthFluidImage,
+                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                        1,
+                        &blitRegion,
+                        VK_FILTER_NEAREST );
+
+        // Transition src depth image back to DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        Utils::BarrierImage( cmd,
+                             srcDepthImage,
+                             VK_ACCESS_TRANSFER_READ_BIT,
+                             VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                                 VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                             VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+                             depthSubres );
+
+        // Transition dst DepthFluid image back to GENERAL for compute shader access
+        Utils::BarrierImage( cmd,
+                             dstDepthFluidImage,
+                             VK_ACCESS_TRANSFER_WRITE_BIT,
+                             VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                             VK_IMAGE_LAYOUT_GENERAL,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                             colorSubres );
+    }
 
 
     // Need to be odd, so the final write is into DepthFluid
@@ -1147,10 +1259,6 @@ void RTGL1::Fluid::CreateFramebuffers( uint32_t width, uint32_t height )
         assert( m_storageFramebuffer->GetImageView( FB_IMAGE_INDEX_DEPTH_FLUID, 0 ) ==
                 m_storageFramebuffer->GetImageView( FB_IMAGE_INDEX_DEPTH_FLUID, 1 ) );
 
-        auto [ format, mem ] =
-            m_storageFramebuffer->GetImageForAlias( FB_IMAGE_INDEX_DEPTH_FLUID, //
-                                                    0 );
-
         // assuming that width, height match!
         {
             const auto info = VkImageCreateInfo{
@@ -1162,7 +1270,7 @@ void RTGL1::Fluid::CreateFramebuffers( uint32_t width, uint32_t height )
                 .arrayLayers   = 1,
                 .samples       = VK_SAMPLE_COUNT_1_BIT,
                 .tiling        = VK_IMAGE_TILING_OPTIMAL,
-                .usage         = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                .usage         = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                 .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
             };
 
@@ -1172,14 +1280,20 @@ void RTGL1::Fluid::CreateFramebuffers( uint32_t width, uint32_t height )
             SET_DEBUG_NAME( m_device,
                             m_depth.image,
                             VK_OBJECT_TYPE_IMAGE,
-                            "DepthFluid - Aliased image for raster pass" );
+                            "DepthFluid image for raster pass" );
         }
-        // alias already allocated float32 memory
+        // dedicated allocation: depth-stencil attachment requirements may exceed
+        // the aliased R32_SFLOAT storage image's memory size
         {
-            assert( format == VK_FORMAT_R32_SFLOAT &&
-                    RASTER_PASS_DEPTH_FORMAT == VK_FORMAT_D32_SFLOAT );
+            VkMemoryRequirements memReqs;
+            vkGetImageMemoryRequirements( m_device, m_depth.image, &memReqs );
 
-            VkResult r = vkBindImageMemory( m_device, m_depth.image, mem, 0 );
+            m_depth.memory = m_allocator->AllocDedicated( memReqs,
+                                                          VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                                                          MemoryAllocator::AllocType::DEFAULT,
+                                                          "DepthFluid memory" );
+
+            VkResult r = vkBindImageMemory( m_device, m_depth.image, m_depth.memory, 0 );
             VK_CHECKERROR( r );
         }
         {
@@ -1246,6 +1360,11 @@ void RTGL1::Fluid::DestroyFramebuffers()
     {
         vkDestroyImageView( m_device, m_depth.view, nullptr );
         vkDestroyImage( m_device, m_depth.image, nullptr );
+        if( m_depth.memory != VK_NULL_HANDLE )
+        {
+            MemoryAllocator::FreeDedicated( m_device, m_depth.memory );
+            m_depth.memory = VK_NULL_HANDLE;
+        }
         m_depth.view  = VK_NULL_HANDLE;
         m_depth.image = VK_NULL_HANDLE;
     }

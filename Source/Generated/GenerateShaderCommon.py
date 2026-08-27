@@ -1,4 +1,4 @@
-# Copyright (c) 2020-2021 Sultim Tsyrendashiev
+﻿# Copyright (c) 2020-2021 Sultim Tsyrendashiev
 # 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -801,7 +801,7 @@ FRAMEBUFFERS = {
     "DepthWorld"                        : (TYPE_FLOAT16,    COMPONENT_R,    FRAMEBUF_FLAGS_STORE_PREV),
     "DepthGrad"                         : (TYPE_FLOAT16,    COMPONENT_R,    0),
     "DepthNdc"                          : (TYPE_FLOAT32,    COMPONENT_R,    0),
-    "DepthFluid"                        : (TYPE_FLOAT32,    COMPONENT_R,    0),
+    "DepthFluid"                        : (TYPE_FLOAT32,    COMPONENT_R,    FRAMEBUF_FLAGS_USAGE_TRANSFER),
     "DepthFluidTemp"                    : (TYPE_FLOAT32,    COMPONENT_R,    0),
     "FluidNormal"                       : (TYPE_UINT32,     COMPONENT_R,    FRAMEBUF_FLAGS_IS_ATTACHMENT),
     "FluidNormalTemp"                   : (TYPE_UINT32,     COMPONENT_R,    0),

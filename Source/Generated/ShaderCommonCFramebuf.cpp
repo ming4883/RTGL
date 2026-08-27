@@ -96,7 +96,7 @@ const RTGL1::FramebufferImageFlags RTGL1::ShFramebuffers_Flags[] =
     0, // DepthWorld_Prev
     0, // DepthGrad
     0, // DepthNdc
-    0, // DepthFluid
+    RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_USAGE_TRANSFER, // DepthFluid
     0, // DepthFluidTemp
     RTGL1::FB_IMAGE_FLAGS_FRAMEBUF_FLAGS_IS_ATTACHMENT, // FluidNormal
     0, // FluidNormalTemp
