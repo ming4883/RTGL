@@ -1,4 +1,4 @@
-// Copyright (c) 2020-2021 Sultim Tsyrendashiev
+﻿// Copyright (c) 2020-2021 Sultim Tsyrendashiev
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -32,6 +32,7 @@ using namespace RTGL1;
 enum
 {
     USES_RAY_QUERY_OR_POSITION_FETCH = 1,
+    USES_COOPMAT                     = 2,
 };
 
 struct ShaderModuleDefinition
@@ -115,16 +116,24 @@ static ShaderModuleDefinition G_SHADERS[] =
     { "EffectVHS",                  "EfVHS.comp.spv"                        },
     { "EffectDither",               "EfDither.comp.spv"                     },
     { "EffectHDRPrepare",           "EfHDRPrepare.comp.spv"                 },
+    { "NrcInference16",             "NrcInference_16.comp.spv"              , USES_COOPMAT },
+    { "NrcInference32",             "NrcInference_32.comp.spv"              , USES_COOPMAT },
+    { "NrcGradient16",              "NrcGradient_16.comp.spv"               , USES_COOPMAT },
+    { "NrcGradient32",              "NrcGradient_32.comp.spv"               , USES_COOPMAT },
+    { "NrcTrainPrepare",            "NrcTrainPrepare.comp.spv"              , USES_COOPMAT },
+    { "NrcOptimize",                "NrcOptimize.comp.spv"                  , USES_COOPMAT },
 };
 
 // clang-format on
 
 ShaderManager::ShaderManager( VkDevice              _device,
                               std::filesystem::path _shaderFolderPath,
-                              bool                  _supportsRayQueryAndPositionFetch )
+                              bool                  _supportsRayQueryAndPositionFetch,
+                              bool                  _supportsCoopmat )
     : device( _device )
     , shaderFolderPath( std::move( _shaderFolderPath ) )
     , supportsRayQueryAndPositionFetch( _supportsRayQueryAndPositionFetch )
+    , supportsCoopmat( _supportsCoopmat )
 {
     LoadShaderModules();
 }
@@ -159,6 +168,17 @@ void ShaderManager::LoadShaderModules()
             {
                 debug::Warning(
                     "Skipping \'{}\' shader, as ray query or position fetch is not supported",
+                    s.filename );
+                continue;
+            }
+        }
+
+        if( s.flags & USES_COOPMAT )
+        {
+            if( !supportsCoopmat )
+            {
+                debug::Warning(
+                    "Skipping \'{}\' shader, as cooperative matrix is not supported",
                     s.filename );
                 continue;
             }

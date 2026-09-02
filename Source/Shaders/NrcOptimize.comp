@@ -1,0 +1,112 @@
+#version 460
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_scalar_block_layout : require
+
+layout( local_size_x = 64, local_size_y = 1, local_size_z = 1 ) in;
+layout( local_size_x_id = 0 ) in;
+
+#define NRC_SET 12
+#define NRC_BINDING_WEIGHTS 4
+#define NRC_BINDING_GRADIENTS 5
+#define NRC_BINDING_OPTIMIZER_ENTRIES 6
+#define NRC_BINDING_OPTIMIZER_STATE 7
+
+#define NRC_HIDDEN_LAYERS 5
+#define NRC_WEIGHT_COUNT ( 64 * 64 * NRC_HIDDEN_LAYERS + 64 * 3 )
+#define NRC_LEARNING_RATE 0.002
+#define NRC_EPSILON 1e-8
+
+struct NRCDispatchCmd
+{
+    uint x;
+    uint y;
+    uint z;
+};
+
+struct NRCOptimizerState
+{
+    uint  uStep;
+    float uBeta1_T;
+    float uBeta2_T;
+    float uAlpha_T;
+    float uAlpha_T_1;
+};
+
+struct NRCOptimizerEntry
+{
+    vec2  moment;
+    float weight;
+    float ema_weight;
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_WEIGHTS, scalar ) buffer NRCWeightsBuffer
+{
+    float16_t uWeights[];
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_GRADIENTS, scalar ) buffer NRCGradientsBuffer
+{
+    float uGradients[];
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_OPTIMIZER_ENTRIES, scalar ) buffer NRCOptimizerEntriesBuffer
+{
+    NRCOptimizerEntry uOptimizerEntries[];
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_OPTIMIZER_STATE, scalar ) uniform NRCOptimizerStateBuffer
+{
+    NRCOptimizerState uOptimizerState;
+};
+
+void main()
+{
+    uint i = gl_GlobalInvocationID.x;
+    if( i >= NRC_WEIGHT_COUNT )
+    {
+        return;
+    }
+
+    NRCOptimizerEntry entry = uOptimizerEntries[ i ];
+
+    float gradient = uGradients[ i ];
+    if( isnan( gradient ) || isinf( gradient ) )
+    {
+        gradient = 0.0;
+    }
+
+    float beta1 = 0.9;
+    float beta2 = 0.999;
+
+    float m = entry.moment.x;
+    float v = entry.moment.y;
+
+    m = beta1 * m + ( 1.0 - beta1 ) * gradient;
+    v = beta2 * v + ( 1.0 - beta2 ) * gradient * gradient;
+
+    float m_hat = m / ( 1.0 - uOptimizerState.uBeta1_T );
+    float v_hat = v / ( 1.0 - uOptimizerState.uBeta2_T );
+
+    float new_weight = entry.weight - NRC_LEARNING_RATE * m_hat / ( sqrt( v_hat ) + NRC_EPSILON );
+
+    float alpha   = uOptimizerState.uAlpha_T;
+    float alpha_1 = uOptimizerState.uAlpha_T_1;
+
+    float ema;
+    if( abs( alpha_1 - alpha ) > 1e-6 )
+    {
+        ema = ( new_weight * alpha_1 - entry.weight * alpha ) / ( alpha_1 - alpha );
+    }
+    else
+    {
+        ema = new_weight;
+    }
+
+    entry.moment     = vec2( m, v );
+    entry.weight     = new_weight;
+    entry.ema_weight = ema;
+
+    uOptimizerEntries[ i ] = entry;
+
+    uWeights[ i ] = float16_t( ema );
+}

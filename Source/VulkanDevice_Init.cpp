@@ -29,6 +29,7 @@
 #include "RenderResolutionHelper.h"
 #include "RgException.h"
 #include "DX12_Interop.h"
+#include "NRCCache.h"
 
 #include "Generated/ShaderCommonC.h"
 
@@ -331,6 +332,14 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         device, 
         memAllocator );
 
+    nrcCache = std::make_shared< NRCCache >(
+        device,
+        memAllocator,
+        framebuffers,
+        cmdManager,
+        *uniform,
+        m_supportsCoopmat );
+
     blueNoise = std::make_shared< BlueNoise >(
         device,
         ovrdFolder / "BlueNoise_LDR_RGBA_128.ktx2", 
@@ -363,7 +372,8 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     shaderManager = std::make_shared< ShaderManager >( 
         device, 
         ovrdFolder / SHADERS_FOLDER,
-        m_supportsRayQueryAndPositionFetch );
+        m_supportsRayQueryAndPositionFetch,
+        m_supportsCoopmat );
 
     scene = std::make_shared< Scene >(
         device, 
@@ -438,6 +448,7 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         *textureManager,
         *framebuffers,
         *restirBuffers,
+        *nrcCache,
         *blueNoise,
         *lightManager,
         *cubemapManager,
@@ -556,6 +567,7 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
 
     framebuffers->Subscribe( rasterizer );
     framebuffers->Subscribe( restirBuffers );
+    framebuffers->Subscribe( nrcCache );
     if( amdFsr2 )
     {
         framebuffers->Subscribe( amdFsr2 );
@@ -581,6 +593,7 @@ RTGL1::VulkanDevice::~VulkanDevice()
     cmdManager.reset();
     framebuffers.reset();
     restirBuffers.reset();
+    nrcCache.reset();
     volumetric.reset();
     fluid.reset();
     tonemapping.reset();
@@ -995,13 +1008,24 @@ void RTGL1::VulkanDevice::CreateDevice()
         .runtimeDescriptorArray                     = 1,
         .timelineSemaphore                          = 1,
         .bufferDeviceAddress                        = 1,
+        .vulkanMemoryModel                          = 1,
+        .vulkanMemoryModelDeviceScope               = 1,
+    };
+
+    VkPhysicalDeviceVulkan13Features vulkan13Features = {
+        .sType               = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
+        .pNext               = nullptr,
+        .subgroupSizeControl = VK_TRUE,
+        .computeFullSubgroups = VK_TRUE,
     };
 
     VkPhysicalDeviceMultiviewFeatures multiviewFeatures = {
         .sType     = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES,
-        .pNext     = &vulkan12Features,
+        .pNext     = &vulkan13Features,
         .multiview = 1,
     };
+
+    vulkan13Features.pNext = &vulkan12Features;
 
     VkPhysicalDevice16BitStorageFeatures storage16 = {
         .sType                    = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES,
@@ -1027,6 +1051,19 @@ void RTGL1::VulkanDevice::CreateDevice()
         .accelerationStructure = 1,
     };
 
+    auto coopmatFeatures = VkPhysicalDeviceCooperativeMatrixFeaturesNV{
+        .sType             = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_NV,
+        .pNext             = &asFeatures,
+        .cooperativeMatrix = 1,
+    };
+
+    auto atomicFloatFeatures = VkPhysicalDeviceShaderAtomicFloatFeaturesEXT{
+        .sType                      = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
+        .pNext                      = &coopmatFeatures,
+        .shaderBufferFloat32Atomics = 1,
+        .shaderBufferFloat32AtomicAdd = 1,
+    };
+
     auto positionFetchFeatures = VkPhysicalDeviceRayTracingPositionFetchFeaturesKHR{
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_POSITION_FETCH_FEATURES_KHR,
         .pNext = &asFeatures,
@@ -1039,9 +1076,23 @@ void RTGL1::VulkanDevice::CreateDevice()
         .rayQuery = 1,
     };
 
+    // NRC: when ray query AND coopmat are both supported, ALL feature structs must be
+    // chained into pNext (features are only applied when their struct is in the chain).
+    // Previously coopmat/atomicFloat were mutually exclusive with ray query, so on
+    // RTX cards the cooperative-matrix and atomic-float features were silently not
+    // enabled while the extensions were active and NRC shaders used them - crashing
+    // the NVIDIA driver inside vkCmdBindDescriptorSets/vkCmdDispatch.
+    // Chain: Features2 -> rtQuery -> positionFetch -> atomicFloat -> coopmat -> asFeatures.
+    positionFetchFeatures.pNext = m_supportsCoopmat
+        ? reinterpret_cast< VkBaseOutStructure* >( &atomicFloatFeatures )
+        : reinterpret_cast< VkBaseOutStructure* >( &asFeatures );
+    atomicFloatFeatures.pNext   = &coopmatFeatures;
+    coopmatFeatures.pNext       = &asFeatures;
+    coopmatFeatures.cooperativeMatrix = m_supportsCoopmat ? VK_TRUE : VK_FALSE;
+
     auto physicalDeviceFeatures2 = VkPhysicalDeviceFeatures2{
-        .sType    = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext    = selectPtr( m_supportsRayQueryAndPositionFetch, &rtQueryFeatures, &asFeatures ),
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+        .pNext = &rtQueryFeatures,
         .features = features,
     };
 
@@ -1066,6 +1117,21 @@ void RTGL1::VulkanDevice::CreateDevice()
     {
         deviceExtensions.push_back( VK_KHR_RAY_QUERY_EXTENSION_NAME );
         deviceExtensions.push_back( VK_KHR_RAY_TRACING_POSITION_FETCH_EXTENSION_NAME );
+    }
+
+    m_supportsCoopmat = false;
+    if( physDevice->SupportsCoopmat() &&
+        l_supported( VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME ) &&
+        l_supported( VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME ) )
+    {
+        deviceExtensions.push_back( VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME );
+        deviceExtensions.push_back( VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME );
+        m_supportsCoopmat = true;
+    }
+    else
+    {
+        debug::Warning(
+            "NRC is disabled: VK_NV_cooperative_matrix / VK_EXT_shader_atomic_float is not supported" );
     }
 
     if( auto d = DLSS2::RequiredVulkanExtensions_Device( physDevice->Get() ) )

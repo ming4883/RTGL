@@ -42,9 +42,10 @@ void PathTracer::BindDescSet( VkPipelineBindPoint   bindPoint,
                               const CubemapManager& cubemapManager,
                               const RenderCubemap&  renderCubemap,
                               const PortalList&     portalList,
-                              const Volumetric&     volumetric )
+                              const Volumetric&     volumetric,
+                              const NRCCache*       nrcCache )
 {
-    VkDescriptorSet sets[] = {
+    VkDescriptorSet sets[ 13 ] = {
         // ray tracing acceleration structures
         scene.GetASManager()->GetTLASDescSet( frameIndex ),
         // storage images
@@ -71,11 +72,18 @@ void PathTracer::BindDescSet( VkPipelineBindPoint   bindPoint,
         volumetric.GetDescSet( frameIndex ),
     };
 
+    uint32_t setCount = 12;
+
+    if( nrcCache != nullptr && nrcCache->IsActive() )
+    {
+        sets[ setCount++ ] = nrcCache->GetDescSet( frameIndex );
+    }
+
     vkCmdBindDescriptorSets( cmd,
                              bindPoint, //
                              rtPipeline->GetLayout(),
                              0,
-                             std::size( sets ),
+                             setCount,
                              sets,
                              0,
                              nullptr );
@@ -90,6 +98,7 @@ PathTracer::TraceParams PathTracer::BindRayTracing( VkCommandBuffer             
                                                     const TextureManager&            textureManager,
                                                     std::shared_ptr< Framebuffers >  framebuffers,
                                                     std::shared_ptr< RestirBuffers > restirBuffers,
+                                                    const NRCCache*                  nrcCache,
                                                     const BlueNoise&                 blueNoise,
                                                     const LightManager&              lightManager,
                                                     const CubemapManager&            cubemapManager,
@@ -114,7 +123,8 @@ PathTracer::TraceParams PathTracer::BindRayTracing( VkCommandBuffer             
                  cubemapManager,
                  renderCubemap,
                  portalList,
-                 volumetric );
+                 volumetric,
+                 nrcCache );
 
     TraceParams p   = {};
     p.cmd           = cmd;
@@ -123,6 +133,7 @@ PathTracer::TraceParams PathTracer::BindRayTracing( VkCommandBuffer             
     p.height        = height;
     p.framebuffers  = std::move( framebuffers );
     p.restirBuffers = std::move( restirBuffers );
+    p.nrcCache      = nrcCache;
 
     return p;
 }
@@ -305,7 +316,8 @@ void PathTracer::FinalizeIndirectIllumination_Compute( VkCommandBuffer       cmd
                  cubemapManager,
                  renderCubemap,
                  portalList,
-                 volumetric );
+                 volumetric,
+                 nullptr );
 
     vkCmdDispatch( cmd,
                    Utils::GetWorkGroupCount( width, COMPUTE_INDIRECT_FINAL_GROUP_SIZE_X ),
@@ -322,4 +334,217 @@ void PathTracer::TraceVolumetric( const TraceParams& params )
                VOLUMETRIC_SIZE_X,
                VOLUMETRIC_SIZE_Y,
                VOLUMETRIC_SIZE_Z );
+}
+
+void PathTracer::NrcInference( VkCommandBuffer      cmd,
+                               uint32_t             frameIndex,
+                               uint32_t             width,
+                               uint32_t             height,
+                               Scene&               scene,
+                               const GlobalUniform& uniform,
+                               const TextureManager& textureManager,
+                               Framebuffers&        framebuffers,
+                               const RestirBuffers& restirBuffers,
+                               const BlueNoise&     blueNoise,
+                               const LightManager&  lightManager,
+                               const CubemapManager& cubemapManager,
+                               const RenderCubemap& renderCubemap,
+                               const PortalList&    portalList,
+                               const Volumetric&    volumetric,
+                               const NRCCache&      nrcCache )
+{
+    CmdLabel label( cmd, "NRC inference" );
+
+    if( !nrcCache.IsActive() )
+    {
+        return;
+    }
+
+    // reservoir image was written by the indirect raygen, make it visible
+    FramebufferImageIndex fs[] = {
+        FB_IMAGE_INDEX_INDIRECT_RESERVOIRS_INITIAL,
+    };
+    framebuffers.BarrierMultiple( cmd, frameIndex, fs );
+
+    bool subgroup32 = true; // refined below by pipeline choice; both pipelines share layout
+    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                       rtPipeline->GetPipelineNRC( 0 ) );
+
+    BindDescSet( VK_PIPELINE_BIND_POINT_COMPUTE,
+                 cmd,
+                 frameIndex,
+                 scene,
+                 uniform,
+                 textureManager,
+                 framebuffers,
+                 restirBuffers,
+                 blueNoise,
+                 lightManager,
+                 cubemapManager,
+                 renderCubemap,
+                 portalList,
+                 volumetric,
+                 &nrcCache );
+
+    uint32_t recordCount = width * height;
+    vkCmdDispatch( cmd, Utils::GetWorkGroupCount( recordCount, 128 ), 1, 1 );
+}
+
+void PathTracer::NrcTrain( VkCommandBuffer      cmd,
+                           uint32_t             frameIndex,
+                           Scene&               scene,
+                           const GlobalUniform& uniform,
+                           const TextureManager& textureManager,
+                           Framebuffers&        framebuffers,
+                           const RestirBuffers& restirBuffers,
+                           const BlueNoise&     blueNoise,
+                           const LightManager&  lightManager,
+                           const CubemapManager& cubemapManager,
+                           const RenderCubemap& renderCubemap,
+                           const PortalList&    portalList,
+                           const Volumetric&    volumetric,
+                           const NRCCache&      nrcCache )
+{
+    CmdLabel label( cmd, "NRC train" );
+
+    if( !nrcCache.IsActive() )
+    {
+        return;
+    }
+
+    // zero counters + dispatch cmd (values in the beginning of each buffer)
+    vkCmdFillBuffer( cmd, nrcCache.GetEvalCountBuffer(), 0, sizeof( uint32_t ), 0 );
+    vkCmdFillBuffer( cmd, nrcCache.GetBatchTrainCountsBuffer(), 0,
+                     NRC_TRAIN_BATCH_COUNT * sizeof( uint32_t ), 0 );
+    vkCmdFillBuffer( cmd, nrcCache.GetDispatchCmdBuffer(), 0,
+                     sizeof( VkDispatchIndirectCommand ), 0 );
+
+    // make zeroed counters visible to TrainPrepare
+    {
+        VkBufferMemoryBarrier2 barrier = {
+            .sType         = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        };
+
+        VkBuffer buffers[] = {
+            nrcCache.GetEvalCountBuffer(),
+            nrcCache.GetBatchTrainCountsBuffer(),
+            nrcCache.GetDispatchCmdBuffer(),
+        };
+
+        VkDependencyInfo depInfo = {
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .bufferMemoryBarrierCount = 3,
+        };
+
+        std::vector< VkBufferMemoryBarrier2 > barriers;
+        for( auto b : buffers )
+        {
+            barrier.buffer = b;
+            barrier.offset = 0;
+            barrier.size   = VK_WHOLE_SIZE;
+            barriers.push_back( barrier );
+        }
+        depInfo.pBufferMemoryBarriers = barriers.data();
+
+        vkCmdPipelineBarrier2( cmd, &depInfo );
+    }
+
+    // TrainPrepare: batches records, computes indirect dispatch size, updates optimizer state
+    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                       rtPipeline->GetPipelineNRC( 2 ) );
+
+    BindDescSet( VK_PIPELINE_BIND_POINT_COMPUTE,
+                 cmd,
+                 frameIndex,
+                 scene,
+                 uniform,
+                 textureManager,
+                 framebuffers,
+                 restirBuffers,
+                 blueNoise,
+                 lightManager,
+                 cubemapManager,
+                 renderCubemap,
+                 portalList,
+                 volumetric,
+                 &nrcCache );
+
+    vkCmdDispatch( cmd, 1, 1, 1 );
+
+    // make dispatch cmd + batch counts visible for indirect dispatch
+    {
+        VkBufferMemoryBarrier2 barrier = {
+            .sType         = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+            .dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        };
+
+        VkBuffer buffers[] = {
+            nrcCache.GetDispatchCmdBuffer(),
+            nrcCache.GetBatchTrainCountsBuffer(),
+        };
+
+        VkDependencyInfo depInfo = {
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .bufferMemoryBarrierCount = 2,
+        };
+
+        std::vector< VkBufferMemoryBarrier2 > barriers;
+        for( auto b : buffers )
+        {
+            barrier.buffer = b;
+            barrier.offset = 0;
+            barrier.size   = VK_WHOLE_SIZE;
+            barriers.push_back( barrier );
+        }
+        depInfo.pBufferMemoryBarriers = barriers.data();
+
+        vkCmdPipelineBarrier2( cmd, &depInfo );
+    }
+
+    // Gradient: indirect dispatch over batched training records
+    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                       rtPipeline->GetPipelineNRC( 1 ) );
+
+    vkCmdDispatchIndirect( cmd, nrcCache.GetDispatchCmdBuffer(), 0 );
+
+    // gradients must be visible to Optimize
+    {
+        VkBufferMemoryBarrier2 barrier = {
+            .sType         = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+            .srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+            .dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .buffer        = nrcCache.GetGradientsBuffer(),
+            .offset        = 0,
+            .size          = VK_WHOLE_SIZE,
+        };
+
+        VkDependencyInfo depInfo = {
+            .sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .bufferMemoryBarrierCount = 1,
+            .pBufferMemoryBarriers    = &barrier,
+        };
+
+        vkCmdPipelineBarrier2( cmd, &depInfo );
+    }
+
+    // Optimize: Adam + EMA weight update
+    vkCmdBindPipeline( cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                       rtPipeline->GetPipelineNRC( 3 ) );
+
+    vkCmdDispatch( cmd, Utils::GetWorkGroupCount( NRC_WEIGHT_COUNT, 64 ), 1, 1 );
 }

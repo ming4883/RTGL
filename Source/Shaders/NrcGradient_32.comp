@@ -1,0 +1,197 @@
+#version 460
+#extension GL_NV_cooperative_matrix : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_EXT_shader_atomic_float : require
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_EXT_scalar_block_layout : require
+
+layout( local_size_x = 128, local_size_y = 1, local_size_z = 1 ) in;
+
+#define NRC_SET 12
+
+#define NRC_BINDING_TRAIN_COUNTS 2
+#define NRC_BINDING_TRAIN_RECORDS 3
+#define NRC_BINDING_WEIGHTS 4
+#define NRC_BINDING_GRADIENTS 5
+#define NRC_BINDING_DISPATCH_CMD 8
+#define NRC_BINDING_PARAMS 11
+
+#define NRC_HIDDEN_LAYERS 5
+#define NRC_TRAIN_BATCH_COUNT 4
+#define NRC_TRAIN_BATCH_SIZE 16384
+#define NRC_WEIGHT_COUNT ( 64 * 64 * NRC_HIDDEN_LAYERS + 64 * 3 )
+#define NRC_RECORD_TYPE_SCREEN 0
+#define NRC_RECORD_TYPE_TRAIN 1
+
+#include "NrcCommon.glsl"
+
+layout( set = NRC_SET, binding = NRC_BINDING_TRAIN_COUNTS, scalar ) buffer NRCTrainCountsBuffer
+{
+    uint uBatchTrainCounts[ NRC_TRAIN_BATCH_COUNT ];
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_TRAIN_RECORDS, scalar ) buffer NRCTrainRecordsBuffer
+{
+    NRCTrainRecordRTGL uTrainRecords[];
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_WEIGHTS, scalar ) readonly buffer NRCWeightsBuffer
+{
+    uvec4 uWeights[];
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_GRADIENTS, scalar ) buffer NRCGradientsBuffer
+{
+    float uGradients[];
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_DISPATCH_CMD, scalar ) buffer NRCDispatchCmdBuffer
+{
+    NRCDispatchCmd uDispatchCmd;
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_PARAMS, scalar ) uniform NRCParamsUBO
+{
+    NRCFrameParams uNRCParams;
+};
+
+#define NRC_SUBGROUP_SIZE NRC_GLSL_SUBGROUP_SIZE
+#if NRC_SUBGROUP_SIZE != 16 && NRC_SUBGROUP_SIZE != 32
+    #error "NRC_GLSL_SUBGROUP_SIZE must be 16 or 32"
+#endif
+
+#define NRC_SUBGROUP_COUNT ( 128 / NRC_SUBGROUP_SIZE )
+#define UV4_X 8
+#define WEIGHT_64_UV4_COUNT ( 64 * 64 / 8 )
+#define WEIGHT_3_UV4_COUNT ( 3 * 64 / 8 )
+#define THREAD_WEIGHT_64_UV4_COUNT ( WEIGHT_64_UV4_COUNT / 128 )
+#define COOPMAT_X 4
+#define ACT_COOPMAT_Y 8
+#define SUBGROUP_ACT_COOPMAT_Y ( ACT_COOPMAT_Y / NRC_SUBGROUP_COUNT )
+#define FP16_PER_UV4 8
+#define MAT64_COOPMAT_STRIDE 8
+#define MAT64_COOPMAT_ELEMENT( x, y ) \
+    ( ( x ) * ( 16 / FP16_PER_UV4 ) + ( y ) * 16 * MAT64_COOPMAT_STRIDE )
+
+#include "NrcEncode.glsl"
+#include "NrcBackward.glsl"
+
+void main()
+{
+    uint recordIndex = gl_GlobalInvocationID.x;
+    if( recordIndex >= uDispatchCmd.x * 128 )
+    {
+        return;
+    }
+
+    uint total = uBatchTrainCounts[ 0 ] + uBatchTrainCounts[ 1 ] +
+                 uBatchTrainCounts[ 2 ] + uBatchTrainCounts[ 3 ];
+    if( recordIndex >= total )
+    {
+        return;
+    }
+
+    // batch-major indexing
+    uint batch = 0;
+    uint idx   = recordIndex;
+    while( idx >= uBatchTrainCounts[ batch ] )
+    {
+        idx -= uBatchTrainCounts[ batch ];
+        batch++;
+    }
+
+    NRCTrainRecordRTGL record = uTrainRecords[ batch * NRC_TRAIN_BATCH_SIZE + idx ];
+
+    // ---- unpack payload & rebuild surface ----
+    uint instanceId     = record.packed_input.instIdAndIndex >> 4;
+    uint instCustomIdx  = record.packed_input.instIdAndIndex & 0xF;
+    // RTGL's packGeometryAndPrimitiveIndex stores only primitiveIndex;
+    // geometryIndex is always 0 (see ShaderCommonGLSLFunc.h).
+    uint localGeomIndex = 0;
+    uint primitiveId    = record.packed_input.geomAndPrimIndex & 0xFFF;
+
+    vec2 bary2      = unpackHalf2x16( record.packed_input.barycentric_2x16U );
+    vec3 baryCoords = vec3( 1.0 - bary2.x - bary2.y, bary2.x, bary2.y );
+    vec3 dir        = vec3( unpackHalf2x16( record.packed_input.scattered_dir_2x16U ), 0.0 );
+
+    ShTriangle tr = getTriangle( int( instanceId ), int( instCustomIdx ), int( localGeomIndex ), int( primitiveId ) );
+
+    vec3 position = tr.positions * baryCoords;
+    vec3 normal   = normalize( tr.normals * baryCoords );
+
+    vec4 orm = vec4( 1.0, 0.5, 0.0, 0.0 );
+    if( tr.occlusionRougnessMetallicTexture != MATERIAL_NO_TEXTURE )
+    {
+        vec2 texCoord = tr.layerTexCoord[ 0 ] * baryCoords;
+        orm = getTextureSampleLod( tr.occlusionRougnessMetallicTexture,
+                                   texCoord, 0.0 );
+    }
+    float roughness = max( orm.y, max( globalUniform.minRoughness, MIN_GGX_ROUGHNESS ) );
+    float metallic  = orm.z;
+
+    vec2 texCoord = tr.layerTexCoord[ 0 ] * baryCoords;
+    vec4 baseColor = unpackUintColor( tr.layerColors[ 0 ] );
+    if( tr.layerColorTextures[ 0 ] != MATERIAL_NO_TEXTURE )
+    {
+        baseColor *= getTextureSampleLod( tr.layerColorTextures[ 0 ],
+                                          texCoord, 0.0 );
+    }
+    vec3 albedo = baseColor.rgb;
+
+    vec3 diffuse  = albedo * ( 1.0 - metallic );
+    vec3 specular = getSpecularColor( albedo, metallic );
+
+    position = ( position - uNRCParams.uPosNormalizeCenter.xyz ) * uNRCParams.uPosNormalizeScale.xyz;
+
+    vec2 dirSph    = NRCSphEncode( dir );
+    vec2 normalSph = NRCSphEncode( normal );
+
+    uvec4 inputs[ 8 ];
+    NRCInputEncode( position, vec3( dirSph, 0.0 ), vec3( normalSph, 0.0 ), roughness, diffuse, specular, inputs );
+
+    // ---- forward ----
+    NNLoadInput( inputs );
+
+    NNForward64_ReLU( 0 );
+    NNForward64_ReLU( 1 );
+    NNForward64_ReLU( 2 );
+    NNForward64_ReLU( 3 );
+    NNForward64_ReLU( 4 );
+    NNForward3( NRC_HIDDEN_LAYERS );
+
+    // store the 16x16 output tiles, then read back the 3 valid columns (VkNRC NNOutput3)
+    for( uint y = 0; y < SUBGROUP_ACT_COOPMAT_Y; ++y )
+    {
+        uint workgroup_y = gl_SubgroupID * SUBGROUP_ACT_COOPMAT_Y + y;
+        coopMatStoreNV( da3_coopmats[ y ], SHARED_WEIGHTS, MAT64_COOPMAT_ELEMENT( 0, workgroup_y ),
+                        MAT64_COOPMAT_STRIDE, true );
+    }
+    subgroupBarrier();
+
+    uvec2 uv2 = SHARED_WEIGHTS[ gl_LocalInvocationID.x * UV4_X ].rg;
+    vec3 predict = vec3( unpackHalf2x16( uv2.x ), unpackHalf2x16( uv2.y ).x );
+
+    // bias is the full second-bounce radiance; factor = 0 -> target == bias
+    vec3 target = vec3( record.bias_r, record.bias_g, record.bias_b );
+
+    vec3 loss_scale = 1.0 / ( vec3( 0.2126, 0.7152, 0.0722 ) * target * target + vec3( 0.01 ) );
+
+    NNLoadDA3_L2Loss( predict, target, loss_scale );
+
+    // ---- backward, accumulate into uGradients ----
+    NNUpdateDW3( NRC_HIDDEN_LAYERS );
+    NNBackwardDA3_ReLU( NRC_HIDDEN_LAYERS );
+    NNUpdateDW64( 4 );
+    NNBackwardDA64_ReLU( 4 );
+    NNUpdateDW64( 3 );
+    NNBackwardDA64_ReLU( 3 );
+    NNUpdateDW64( 2 );
+    NNBackwardDA64_ReLU( 2 );
+    NNUpdateDW64( 1 );
+    NNBackwardDA64_ReLU( 1 );
+    NNUpdateDW64( 0 );
+}

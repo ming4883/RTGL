@@ -1,4 +1,4 @@
-// Copyright (c) 2020-2021 Sultim Tsyrendashiev
+﻿// Copyright (c) 2020-2021 Sultim Tsyrendashiev
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -597,6 +597,16 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
 
     uniform->Upload( cmd, frameIndex );
 
+    if( nrcCache->IsActive() )
+    {
+        nrcCache->UpdateFrameParams( cmd,
+                                     frameIndex,
+                                     uniform->GetData()->cameraPosition,
+                                     uniform->GetData()->frameId,
+                                     renderResolution.Width(),
+                                     renderResolution.Height() );
+    }
+
     // submit geometry and upload uniform after getting data from a scene
     scene->SubmitForFrame( cmd,
                            frameIndex,
@@ -669,6 +679,7 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
                                                         *textureManager,
                                                         framebuffers,
                                                         restirBuffers,
+                                                        nrcCache.get(),
                                                         *blueNoise,
                                                         *lightManager,
                                                         *cubemapManager,
@@ -697,6 +708,27 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
         pathTracer->CalculateInitialReservoirs( params );
         pathTracer->TraceDirectllumination( params );
         pathTracer->TraceIndirectllumination( params );
+
+        if( nrcCache->IsActive() )
+        {
+            pathTracer->NrcInference( cmd,
+                                      frameIndex,
+                                      renderResolution.Width(),
+                                      renderResolution.Height(),
+                                      *scene,
+                                      *uniform,
+                                      *textureManager,
+                                      *framebuffers,
+                                      *restirBuffers,
+                                      *blueNoise,
+                                      *lightManager,
+                                      *cubemapManager,
+                                      *rasterizer->GetRenderCubemap(),
+                                      *portalList,
+                                      *volumetric,
+                                      *nrcCache );
+        }
+
         pathTracer->TraceVolumetric( params );
 
         if( fluid )
@@ -724,6 +756,24 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
                                                           *rasterizer->GetRenderCubemap(),
                                                           *portalList,
                                                           *volumetric );
+        if( nrcCache->IsActive() )
+        {
+            pathTracer->NrcTrain( cmd,
+                                  frameIndex,
+                                  *scene,
+                                  *uniform,
+                                  *textureManager,
+                                  *framebuffers,
+                                  *restirBuffers,
+                                  *blueNoise,
+                                  *lightManager,
+                                  *cubemapManager,
+                                  *rasterizer->GetRenderCubemap(),
+                                  *portalList,
+                                  *volumetric,
+                                  *nrcCache );
+        }
+
         denoiser->Denoise( cmd, frameIndex, uniform );
         volumetric->ProcessScattering(
             cmd, frameIndex, *uniform, *blueNoise, *framebuffers, volumetricMaxHistoryLen );

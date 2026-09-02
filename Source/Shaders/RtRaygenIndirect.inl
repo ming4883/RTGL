@@ -46,6 +46,62 @@ layout (constant_id = 1) const uint lightmapLayerIndex = 3;
 #include "RaygenCommon.h"
 #include "ReservoirIndirect.h"
 
+#ifdef NRC_ENABLED
+#extension GL_EXT_scalar_block_layout : require
+#define NRC_SET 12
+#define NRC_BINDING_EVAL_COUNT 0
+#define NRC_BINDING_EVAL_RECORDS 1
+#define NRC_BINDING_TRAIN_COUNTS 2
+#define NRC_BINDING_TRAIN_RECORDS 3
+#define NRC_HIDDEN_LAYERS 5
+#define NRC_TRAIN_BATCH_COUNT 4
+#define NRC_TRAIN_BATCH_SIZE 16384
+#define NRC_TRAIN_PROBABILITY 0.25
+#define NRC_RECORD_TYPE_SCREEN 0
+#define NRC_RECORD_TYPE_TRAIN 1
+
+struct PackedNRCInputRTGL
+{
+    uint instIdAndIndex;
+    uint geomAndPrimIndex;
+    uint barycentric_2x16U;
+    uint scattered_dir_2x16U;
+};
+
+struct NRCEvalRecordRTGL
+{
+    uint               dst;
+    PackedNRCInputRTGL packed_input;
+};
+
+struct NRCTrainRecordRTGL
+{
+    float              bias_r, bias_g, bias_b;
+    float              factor_r, factor_g, factor_b;
+    PackedNRCInputRTGL packed_input;
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_EVAL_COUNT, scalar ) buffer NRCEvalCountBuffer
+{
+    uint uEvalCount;
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_EVAL_RECORDS, scalar ) buffer NRCEvalRecordsBuffer
+{
+    NRCEvalRecordRTGL uEvalRecords[];
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_TRAIN_COUNTS, scalar ) buffer NRCTrainCountsBuffer
+{
+    uint uTotalTrainCount;
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_TRAIN_RECORDS, scalar ) buffer NRCTrainRecordsBuffer
+{
+    NRCTrainRecordRTGL uTrainRecords[];
+};
+#endif // NRC_ENABLED
+
 #else // RT_FORCE_COMPUTE
 
     #define DESC_SET_FRAMEBUFFERS 1
@@ -108,6 +164,11 @@ vec3 getDiffuseBounce(const uint seed, uint bounceIndex, const vec3 n, out float
 #define FIRST_BOUNCE_MIP_BIAS 0
 #define SECOND_BOUNCE_MIP_BIAS 32
 
+#ifdef NRC_ENABLED
+// payload of the last traced bounce, needed to rebuild NRC inputs for the cache records
+ShPayload g_nrcPayload;
+#endif
+
 Surface traceBounce(const vec3 originPosition, float originRoughness, uint originInstCustomIndex,
                     const vec3 bounceDir, float bounceMipBias, out vec3 out_emission)
 {
@@ -119,6 +180,10 @@ Surface traceBounce(const vec3 originPosition, float originRoughness, uint origi
         s.isSky = true;
         return s;
     }
+
+#ifdef NRC_ENABLED
+    g_nrcPayload = p;
+#endif
 
     return hitInfoToSurface_Indirect(
         getHitInfoBounce(p, originPosition, originRoughness, bounceMipBias, out_emission), 
@@ -146,6 +211,22 @@ vec3 processSecondDiffuseBounce(const uint seed, const Surface surf, const vec3 
 
     return (emis + diffuse) * hitSurf.albedo * oneOverPdf;
 }
+
+#ifdef NRC_ENABLED
+uint NrcPackDstScreen( const ivec2 pix )
+{
+    uint x = uint( pix.x ) & 0x7FFF;
+    uint y = uint( pix.y ) & 0x7FFF;
+    return ( y << 16 ) | ( x << 1 ) | NRC_RECORD_TYPE_SCREEN;
+}
+
+uint NrcPackDstTrain( const ivec2 pix )
+{
+    uint x = uint( pix.x ) & 0x7FFF;
+    uint y = uint( pix.y ) & 0x7FFF;
+    return ( y << 16 ) | ( x << 1 ) | NRC_RECORD_TYPE_TRAIN;
+}
+#endif // NRC_ENABLED
 
 SampleIndirect processIndirect( const uint seed, const Surface surf, out float oneOverSourcePdf )
 {
@@ -195,9 +276,59 @@ SampleIndirect processIndirect( const uint seed, const Surface surf, out float o
     // calculate direct diffuse illumination in a hit position
     vec3 diffuse = processDirectIllumination(seed, hitSurf, 1);
 
+#ifdef NRC_ENABLED
+    bool isTrainSample = rnd16( seed, RANDOM_SALT_NRC_TRAIN_DECISION ) < NRC_TRAIN_PROBABILITY;
+#endif
+
     // TODO: investigate why uncommenting this makes diffuse very red
     // if( globalUniform.indirSecondBounce != 0 )
     {
+#ifdef NRC_ENABLED
+        if( isTrainSample )
+        {
+            // train sample: keep the full second bounce, cache its radiance as the target
+            float oneOverPdf_Second;
+            const vec3 bounceDir_Second = getDiffuseBounce(seed, 2, hitSurf.normal, oneOverPdf_Second);
+
+            vec3 secondBounce = processSecondDiffuseBounce(seed,
+                                                          hitSurf,
+                                                          bounceDir_Second,
+                                                          oneOverPdf_Second);
+            diffuse += secondBounce;
+
+            uint slot = atomicAdd( uTotalTrainCount, 1 );
+            if( slot < NRC_TRAIN_BATCH_COUNT * NRC_TRAIN_BATCH_SIZE )
+            {
+                NRCTrainRecordRTGL record;
+                record.bias_r             = secondBounce.r;
+                record.bias_g             = secondBounce.g;
+                record.bias_b             = secondBounce.b;
+                record.factor_r           = 0.0;
+                record.factor_g           = 0.0;
+                record.factor_b           = 0.0;
+                record.packed_input.instIdAndIndex      = uint( g_nrcPayload.instIdAndIndex );
+                record.packed_input.geomAndPrimIndex    = uint( g_nrcPayload.geomAndPrimIndex );
+                record.packed_input.barycentric_2x16U   = packHalf2x16( g_nrcPayload.baryCoords );
+                record.packed_input.scattered_dir_2x16U = packHalf2x16( bounceDir_Second.xy );
+                uTrainRecords[ slot ] = record;
+            }
+        }
+        else
+        {
+            // inference sample: replace the second bounce with the cached network output
+            uint slot = atomicAdd( uEvalCount, 1 );
+            if( slot < uint( globalUniform.renderWidth ) * uint( globalUniform.renderHeight ) )
+            {
+                NRCEvalRecordRTGL record;
+                record.dst                             = NrcPackDstScreen( ivec2( gl_LaunchIDEXT.xy ) );
+                record.packed_input.instIdAndIndex     = uint( g_nrcPayload.instIdAndIndex );
+                record.packed_input.geomAndPrimIndex   = uint( g_nrcPayload.geomAndPrimIndex );
+                record.packed_input.barycentric_2x16U  = packHalf2x16( g_nrcPayload.baryCoords );
+                record.packed_input.scattered_dir_2x16U = packHalf2x16( -hitSurf.toViewerDir.xy );
+                uEvalRecords[ slot ] = record;
+            }
+        }
+#else
         float oneOverPdf_Second;
         const vec3 bounceDir_Second = getDiffuseBounce(seed, 2, hitSurf.normal, oneOverPdf_Second);
 
@@ -205,6 +336,7 @@ SampleIndirect processIndirect( const uint seed, const Surface surf, out float o
                                               hitSurf,
                                               bounceDir_Second,
                                               oneOverPdf_Second);
+#endif
     }
 
     SampleIndirect s = createSampleIndirect( //

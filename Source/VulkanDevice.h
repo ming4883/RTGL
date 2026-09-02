@@ -72,6 +72,7 @@ namespace RTGL1
 {
 
 struct Devmode;
+class NRCCache;
 
 
 class VulkanDevice
@@ -168,6 +169,7 @@ private:
     VkFence outOfFrameFences[ MAX_FRAMES_IN_FLIGHT ] = {};
 
     bool m_supportsRayQueryAndPositionFetch{ false };
+    bool m_supportsCoopmat{ false };
 
     std::shared_ptr< PhysicalDevice > physDevice;
     std::shared_ptr< Queues >         queues;
@@ -179,6 +181,7 @@ private:
 
     std::shared_ptr< Framebuffers >  framebuffers;
     std::shared_ptr< RestirBuffers > restirBuffers;
+    std::shared_ptr< NRCCache >      nrcCache;
     std::shared_ptr< Volumetric >    volumetric;
     std::shared_ptr< Fluid >         fluid;
 

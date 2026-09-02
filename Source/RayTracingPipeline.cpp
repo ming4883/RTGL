@@ -62,6 +62,7 @@ RTGL1::RayTracingPipeline::RayTracingPipeline( VkDevice                         
                                                const TextureManager&              _textureManager,
                                                const Framebuffers&                _framebuffers,
                                                const RestirBuffers&               _restirBuffers,
+                                               const NRCCache&                    _nrcCache,
                                                const BlueNoise&                   _blueNoise,
                                                const LightManager&                _lightManager,
                                                const CubemapManager&              _cubemapManager,
@@ -82,6 +83,7 @@ RTGL1::RayTracingPipeline::RayTracingPipeline( VkDevice                         
     , missShaderCount( 0 )
 {
     shaderBindingTable = std::make_shared< AutoBuffer >( std::move( _allocator ) );
+    nrcCache = &_nrcCache;
 
     // all set layouts to be used
     VkDescriptorSetLayout setLayouts[] = {
@@ -109,6 +111,8 @@ RTGL1::RayTracingPipeline::RayTracingPipeline( VkDevice                         
         _restirBuffers.GetDescSetLayout(),
         // device local buffers for volumetrics
         _volumetric.GetDescSetLayout(),
+        // NRC buffers
+        _nrcCache.GetDescSetLayout(),
     };
 
     rtPipelineLayout = CreatePipelineLayout( device, setLayouts );
@@ -293,6 +297,57 @@ void RTGL1::RayTracingPipeline::CreateComputePipelines( const ShaderManager* sha
         SET_DEBUG_NAME(
             device, compPipelineIndirectFinal, VK_OBJECT_TYPE_PIPELINE, "CmIndirectFinal" );
     }
+
+    if( nrcCache != nullptr && nrcCache->IsActive() )
+    {
+        const uint32_t subgroupSize = physDevice->GetSubgroupSize();
+
+        // 0/1: NrcInference subgroup 16/32; 2/3: NrcGradient subgroup 16/32; 4: TrainPrepare; 5: Optimize
+        const struct
+        {
+            const char* name;
+            const char* debugName;
+            bool        needsSubgroup;
+        } descs[] = {
+            { "NrcInference16",  "NrcInference16",  true  },
+            { "NrcInference32",  "NrcInference32",  true  },
+            { "NrcGradient16",   "NrcGradient16",   true  },
+            { "NrcGradient32",   "NrcGradient32",   true  },
+            { "NrcTrainPrepare", "NrcTrainPrepare", false },
+            { "NrcOptimize",     "NrcOptimize",     false },
+        };
+
+        for( uint32_t i = 0; i < 6; i++ )
+        {
+            auto stage = shaderManager->GetStageInfo( descs[ i ].name );
+
+            VkPipelineShaderStageRequiredSubgroupSizeCreateInfo requiredSize = {
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO,
+                .pNext = nullptr,
+                .requiredSubgroupSize = subgroupSize,
+            };
+
+            if( descs[ i ].needsSubgroup )
+            {
+                stage.flags |= VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT;
+                stage.pNext  = &requiredSize;
+            }
+
+            VkComputePipelineCreateInfo info = {
+                .sType  = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+                .pNext  = nullptr,
+                .flags  = 0,
+                .stage  = stage,
+                .layout = rtPipelineLayout,
+            };
+
+            VkResult r = vkCreateComputePipelines(
+                device, VK_NULL_HANDLE, 1, &info, nullptr, &nrcCompPipelines[ i ] );
+            VK_CHECKERROR( r );
+            SET_DEBUG_NAME(
+                device, nrcCompPipelines[ i ], VK_OBJECT_TYPE_PIPELINE, descs[ i ].debugName );
+        }
+    }
 }
 
 void RTGL1::RayTracingPipeline::DestroyPipeline()
@@ -301,6 +356,15 @@ void RTGL1::RayTracingPipeline::DestroyPipeline()
     rtPipeline = VK_NULL_HANDLE;
     vkDestroyPipeline( device, compPipelineIndirectFinal, nullptr );
     compPipelineIndirectFinal = VK_NULL_HANDLE;
+
+    for( auto& p : nrcCompPipelines )
+    {
+        if( p != VK_NULL_HANDLE )
+        {
+            vkDestroyPipeline( device, p, nullptr );
+            p = VK_NULL_HANDLE;
+        }
+    }
 }
 
 void RTGL1::RayTracingPipeline::CreateSBT()
@@ -355,6 +419,22 @@ auto RTGL1::RayTracingPipeline::GetShaderTableSafely_RayTracing( VkCommandBuffer
 auto RTGL1::RayTracingPipeline::GetPipelineIndirectFinal_Compute() -> VkPipeline
 {
     return compPipelineIndirectFinal;
+}
+
+auto RTGL1::RayTracingPipeline::GetPipelineNRC( uint32_t index ) -> VkPipeline
+{
+    // 0: inference, 1: gradient, 2: train prepare, 3: optimize
+    assert( index < 4 );
+
+    const bool use32 = physDevice->GetSubgroupSize() == 32;
+
+    switch( index )
+    {
+        case 0: return nrcCompPipelines[ use32 ? 1 : 0 ];
+        case 1: return nrcCompPipelines[ use32 ? 3 : 2 ];
+        case 2: return nrcCompPipelines[ 4 ];
+        default: return nrcCompPipelines[ 5 ];
+    }
 }
 
 void RTGL1::RayTracingPipeline::GetEntries( uint32_t                         sbtRayGenIndex,

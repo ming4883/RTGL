@@ -243,9 +243,16 @@ def main():
         if filename not in cache or isOutdated or wereDependentModified(dependencyMap, modifiedDependent, cache, filename):
             print("> Building " + os.path.basename(filename))
 
+            # NRC coopmat kernels require the subgroup size as a compile-time define
+            extraDefines = []
+            baseName = os.path.basename(filename)
+            if baseName.startswith("Nrc") and ("Inference" in baseName or "Gradient" in baseName):
+                subgroupSize = 32 if "_32" in baseName else 16
+                extraDefines = [ "-DNRC_GLSL_SUBGROUP_SIZE=" + str(subgroupSize) ]
+
             r = subprocess.run([
                 GLSLC_EXE, "--target-env=vulkan1.2"
-                ] + getDependentFoldersProcArg() + [
+                ] + getDependentFoldersProcArg() + extraDefines + [
                 filename, 
                 "-o", targetSpvFile], 
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

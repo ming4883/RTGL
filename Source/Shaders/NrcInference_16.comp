@@ -1,0 +1,164 @@
+#version 460
+#extension GL_NV_cooperative_matrix : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_vote : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_EXT_shader_atomic_float : require
+#extension GL_EXT_control_flow_attributes : require
+#extension GL_EXT_scalar_block_layout : require
+
+layout( local_size_x = 128, local_size_y = 1, local_size_z = 1 ) in;
+
+#define NRC_SET 12
+
+#define NRC_BINDING_EVAL_COUNT 0
+#define NRC_BINDING_EVAL_RECORDS 1
+#define NRC_BINDING_WEIGHTS 4
+#define NRC_BINDING_BIAS_FACTOR_R 9
+#define NRC_BINDING_FACTOR_GB 10
+
+#define NRC_HIDDEN_LAYERS 5
+
+#define NRC_RECORD_TYPE_SCREEN 0
+#define NRC_RECORD_TYPE_TRAIN 1
+
+#include "NrcCommon.glsl"
+
+layout( set = NRC_SET, binding = NRC_BINDING_EVAL_COUNT, scalar ) buffer NRCEvalCountBuffer
+{
+    uint uEvalCount;
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_EVAL_RECORDS, scalar ) buffer NRCEvalRecordsBuffer
+{
+    NRCEvalRecordRTGL uEvalRecords[];
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_WEIGHTS, scalar ) readonly buffer NRCWeightsBuffer
+{
+    uvec4 uWeights[];
+};
+
+layout( rgba32f, set = NRC_SET, binding = NRC_BINDING_BIAS_FACTOR_R ) uniform image2D uBias_FactorR;
+layout( rgba32f, set = NRC_SET, binding = NRC_BINDING_FACTOR_GB ) uniform image2D uFactorGB;
+
+layout( set = NRC_SET, binding = NRC_BINDING_PARAMS, scalar ) uniform NRCParamsUBO
+{
+    NRCFrameParams uNRCParams;
+};
+// =====================================================================
+// NN forward kernels, adapted from VkNRC (AdamYuan/VkNRC, MIT)
+// =====================================================================
+
+#define NRC_SUBGROUP_SIZE NRC_GLSL_SUBGROUP_SIZE
+#if NRC_SUBGROUP_SIZE != 16 && NRC_SUBGROUP_SIZE != 32
+    #error "NRC_GLSL_SUBGROUP_SIZE must be 16 or 32"
+#endif
+
+#define NRC_SUBGROUP_COUNT ( 128 / NRC_SUBGROUP_SIZE )
+#define UV4_X 8
+#define WEIGHT_64_UV4_COUNT ( 64 * 64 / 8 )
+#define WEIGHT_3_UV4_COUNT ( 3 * 64 / 8 )
+#define THREAD_WEIGHT_64_UV4_COUNT ( WEIGHT_64_UV4_COUNT / 128 )
+#define COOPMAT_X 4
+#define ACT_COOPMAT_Y 8
+#define SUBGROUP_ACT_COOPMAT_Y ( ACT_COOPMAT_Y / NRC_SUBGROUP_COUNT )
+#define FP16_PER_UV4 8
+#define MAT64_COOPMAT_STRIDE 8
+#define MAT64_COOPMAT_ELEMENT( x, y ) \
+    ( ( x ) * ( 16 / FP16_PER_UV4 ) + ( y ) * 16 * MAT64_COOPMAT_STRIDE )
+
+#include "NrcEncode.glsl"
+#include "NrcForward.glsl"
+
+void main()
+{
+    uint recordIndex = gl_GlobalInvocationID.x;
+    if( recordIndex >= uEvalCount )
+    {
+        return;
+    }
+
+    NRCEvalRecordRTGL record = uEvalRecords[ recordIndex ];
+    if( ( record.dst & 1 ) != NRC_RECORD_TYPE_SCREEN )
+    {
+        return;
+    }
+
+    uvec2 dst2;
+    dst2.x = ( record.dst >> 1 ) & 0x7FFF;
+    dst2.y = ( record.dst >> 16 ) & 0x7FFF;
+
+    // ---- unpack & encode input ----
+    uint instanceId     = record.packed_input.instIdAndIndex >> 4;
+    uint instCustomIdx  = record.packed_input.instIdAndIndex & 0xF;
+    // RTGL's packGeometryAndPrimitiveIndex stores only primitiveIndex;
+    // geometryIndex is always 0 (see ShaderCommonGLSLFunc.h).
+    uint localGeomIndex = 0;
+    uint primitiveId    = record.packed_input.geomAndPrimIndex & 0xFFF;
+
+    vec2 bary2      = unpackHalf2x16( record.packed_input.barycentric_2x16U );
+    vec3 baryCoords = vec3( 1.0 - bary2.x - bary2.y, bary2.x, bary2.y );
+    vec3 dir        = vec3( unpackHalf2x16( record.packed_input.scattered_dir_2x16U ), 0.0 );
+
+    ShTriangle tr = getTriangle( int( instanceId ), int( instCustomIdx ), int( localGeomIndex ), int( primitiveId ) );
+
+    vec3 position = tr.positions * baryCoords;
+    vec3 normal   = normalize( tr.normals * baryCoords );
+
+    vec4 orm = vec4( 1.0, 0.5, 0.0, 0.0 );
+    if( tr.occlusionRougnessMetallicTexture != MATERIAL_NO_TEXTURE )
+    {
+        vec2 texCoord = tr.layerTexCoord[ 0 ] * baryCoords;
+        orm = getTextureSampleLod( tr.occlusionRougnessMetallicTexture,
+                                   texCoord, 0.0 );
+    }
+    float roughness = max( orm.y, max( globalUniform.minRoughness, MIN_GGX_ROUGHNESS ) );
+    float metallic  = orm.z;
+
+    vec2 texCoord = tr.layerTexCoord[ 0 ] * baryCoords;
+    vec4 baseColor = unpackUintColor( tr.layerColors[ 0 ] );
+    if( tr.layerColorTextures[ 0 ] != MATERIAL_NO_TEXTURE )
+    {
+        baseColor *= getTextureSampleLod( tr.layerColorTextures[ 0 ],
+                                          texCoord, 0.0 );
+    }
+    vec3 albedo = baseColor.rgb;
+
+    vec3 diffuse  = albedo * ( 1.0 - metallic );
+    vec3 specular = getSpecularColor( albedo, metallic );
+
+    position = ( position - uNRCParams.uPosNormalizeCenter.xyz ) * uNRCParams.uPosNormalizeScale.xyz;
+
+    vec2 dirSph    = NRCSphEncode( dir );
+    vec2 normalSph = NRCSphEncode( normal );
+
+    uvec4 inputs[ 8 ];
+    NRCInputEncode( position, vec3( dirSph, 0.0 ), vec3( normalSph, 0.0 ), roughness, diffuse, specular, inputs );
+
+    // ---- forward ----
+    NNLoadInput( inputs );
+
+    NNForward64_ReLU( 0 );
+    NNForward64_ReLU( 1 );
+    NNForward64_ReLU( 2 );
+    NNForward64_ReLU( 3 );
+    NNForward64_ReLU( 4 );
+
+    vec3 predict = NNForward3( NRC_HIDDEN_LAYERS );
+
+    vec3 o = max( predict, vec3( 0.0 ) );
+
+    // ---- bias + factor * MLP output ----
+    vec4 bias_factor_r = imageLoad( uBias_FactorR, ivec2( dst2 ) );
+    vec2 factor_gb     = imageLoad( uFactorGB, ivec2( dst2 ) ).xy;
+
+    vec3 color = bias_factor_r.rgb + vec3( bias_factor_r.a, factor_gb ) * o;
+
+    // write radiance into the ReSTIR reservoir image, preserving .y (oneOverSourcePdf)
+    uvec4 reservoir = imageLoad( framebufIndirectReservoirsInitial, ivec2( dst2 ) );
+    reservoir.z = encodeE5B9G9R9( color );
+    imageStore( framebufIndirectReservoirsInitial, ivec2( dst2 ), reservoir );
+}

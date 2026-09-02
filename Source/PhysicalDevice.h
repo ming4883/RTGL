@@ -49,6 +49,9 @@ public:
 
     bool SupportsRayQuery() const { return supportsRayQuery; }
     bool SupportsPositionFetch() const { return supportsPositionFetch; }
+    bool SupportsCoopmat() const { return supportsCoopmat; }
+
+    uint32_t GetSubgroupSize() const { return subgroupSize; }
 
 private:
     // selected physical device
@@ -59,6 +62,10 @@ private:
 
     bool supportsRayQuery{ false };
     bool supportsPositionFetch{ false };
+
+    // Neural Radiance Cache support: VK_NV_cooperative_matrix + required subgroup size
+    uint32_t subgroupSize{ 0 };
+    bool     supportsCoopmat{ false };
 };
 
 }

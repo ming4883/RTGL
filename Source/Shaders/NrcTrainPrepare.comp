@@ -1,0 +1,67 @@
+#version 460
+#extension GL_EXT_scalar_block_layout : require
+#extension GL_KHR_shader_subgroup_basic : require
+
+layout( local_size_x = 1, local_size_y = 1, local_size_z = 1 ) in;
+
+#define NRC_SET 12
+#define NRC_BINDING_TRAIN_COUNTS 2
+#define NRC_BINDING_OPTIMIZER_STATE 7
+#define NRC_BINDING_DISPATCH_CMD 8
+
+#define NRC_TRAIN_BATCH_COUNT 4
+#define NRC_TRAIN_BATCH_SIZE 16384
+#define NRC_HIDDEN_LAYERS 5
+#define NRC_WEIGHT_COUNT ( 64 * 64 * NRC_HIDDEN_LAYERS + 64 * 3 )
+#define NRC_ADAM_BETA1 0.9
+#define NRC_ADAM_BETA2 0.999
+#define NRC_EMA_ALPHA 0.99
+
+struct NRCDispatchCmd
+{
+    uint x;
+    uint y;
+    uint z;
+};
+
+struct NRCOptimizerState
+{
+    uint  uStep;
+    float uBeta1_T;
+    float uBeta2_T;
+    float uAlpha_T;
+    float uAlpha_T_1;
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_TRAIN_COUNTS, scalar ) buffer NRCTrainCountsBuffer
+{
+    uint uTotalTrainCount;
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_OPTIMIZER_STATE, scalar ) buffer NRCOptimizerStateBuffer
+{
+    NRCOptimizerState uOptimizerState;
+};
+
+layout( set = NRC_SET, binding = NRC_BINDING_DISPATCH_CMD, scalar ) buffer NRCDispatchCmdBuffer
+{
+    NRCDispatchCmd uDispatchCmd;
+};
+
+void main()
+{
+    uint count = min( uTotalTrainCount, NRC_TRAIN_BATCH_SIZE );
+
+    uDispatchCmd.x = ( count + 127 ) / 128;
+    uDispatchCmd.y          = 1;
+    uDispatchCmd.z          = 1;
+
+    if( count > 0 )
+    {
+        uOptimizerState.uStep++;
+        uOptimizerState.uBeta1_T *= NRC_ADAM_BETA1;
+        uOptimizerState.uBeta2_T *= NRC_ADAM_BETA2;
+        uOptimizerState.uAlpha_T_1 = uOptimizerState.uAlpha_T;
+        uOptimizerState.uAlpha_T *= NRC_EMA_ALPHA;
+    }
+}

@@ -63,10 +63,15 @@ PhysicalDevice::PhysicalDevice( VkInstance instance )
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
             .pNext = &rayQueryFeatures,
         };
+        auto coopmatFeatures = VkPhysicalDeviceCooperativeMatrixFeaturesNV{
+            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_NV,
+            .pNext = nullptr,
+        };
         auto deviceFeatures2 = VkPhysicalDeviceFeatures2{
             .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-            .pNext = &rtFeatures,
+            .pNext = &coopmatFeatures,
         };
+        coopmatFeatures.pNext = &rtFeatures;
         vkGetPhysicalDeviceFeatures2( p, &deviceFeatures2 );
 
 
@@ -76,6 +81,21 @@ PhysicalDevice::PhysicalDevice( VkInstance instance )
 
             supportsRayQuery      = rayQueryFeatures.rayQuery;
             supportsPositionFetch = positionFetchFeatures.rayTracingPositionFetch;
+
+            {
+                VkPhysicalDeviceVulkan11Properties vk11Props = {
+                    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES,
+                };
+                auto deviceProp = VkPhysicalDeviceProperties2{
+                    .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+                    .pNext = &vk11Props,
+                };
+                vkGetPhysicalDeviceProperties2( p, &deviceProp );
+                subgroupSize = vk11Props.subgroupSize;
+            }
+
+            supportsCoopmat = coopmatFeatures.cooperativeMatrix &&
+                              ( subgroupSize == 16 || subgroupSize == 32 );
 
             asProperties = VkPhysicalDeviceAccelerationStructurePropertiesKHR{
                 .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR
