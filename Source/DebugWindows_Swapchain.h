@@ -252,22 +252,6 @@ inline void DebugWindows_Swapchain::Create( const VkExtent2D& newExtent,
                         "Dev Swapchain image view" );
     }
 
-    VkCommandBuffer cmd = m_cmdManager->StartGraphicsCmd();
-    for( VkImage img : m_swapchainImages )
-    {
-        if( img )
-        {
-            Utils::BarrierImage( cmd, //
-                                 img,
-                                 0,
-                                 0,
-                                 VK_IMAGE_LAYOUT_UNDEFINED,
-                                 VK_IMAGE_LAYOUT_PRESENT_SRC_KHR );
-        }
-    }
-    m_cmdManager->Submit( cmd );
-    m_cmdManager->WaitGraphicsIdle();
-
     CallCreateSubscribers();
 }
 

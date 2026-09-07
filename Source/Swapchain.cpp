@@ -539,7 +539,7 @@ void RTGL1::Swapchain::BlitForPresent( VkCommandBuffer   cmd,
                 .srcAccessMask       = VK_ACCESS_2_NONE,
                 .dstStageMask        = VK_PIPELINE_STAGE_2_BLIT_BIT,
                 .dstAccessMask       = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                .oldLayout           = swapchainImageLayout,
+                .oldLayout           = VK_IMAGE_LAYOUT_UNDEFINED,
                 .newLayout           = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                 .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
@@ -884,10 +884,6 @@ void RTGL1::Swapchain::Create( const VkExtent2D& size, //
         return;
     }
 
-    const VkImageLayout targetLayout =
-        ( m_type == SWAPCHAIN_TYPE_VULKAN_NATIVE ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-                                                 : VK_IMAGE_LAYOUT_GENERAL );
-
     const VkSurfaceFormatKHR surfaceFormat = isHDR ? *m_surfaceFormat.hdr //
                                                    : m_surfaceFormat.ldr;
 
@@ -951,22 +947,6 @@ void RTGL1::Swapchain::Create( const VkExtent2D& size, //
         r = vkGetSwapchainImagesKHR( device, swapchain, &imageCount, swapchainImages.data() );
         VK_CHECKERROR( r );
     }
-
-    VkCommandBuffer cmd = cmdManager->StartGraphicsCmd();
-    for( VkImage img : swapchainImages )
-    {
-        if( img )
-        {
-            Utils::BarrierImage( cmd, //
-                                 img,
-                                 0,
-                                 0,
-                                 VK_IMAGE_LAYOUT_UNDEFINED,
-                                 targetLayout );
-        }
-    }
-    cmdManager->Submit( cmd );
-    cmdManager->WaitGraphicsIdle();
 }
 
 VkSwapchainKHR RTGL1::Swapchain::DestroyWithoutSwapchain()
