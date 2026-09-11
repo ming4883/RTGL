@@ -1,4 +1,5 @@
 #version 460
 
 #define RT_RAYGEN_INDIRECT_INIT
+#define INDIRECT_DIFFUSE_MAX_BOUNCES 8
 #include "RtRaygenIndirect.inl"
