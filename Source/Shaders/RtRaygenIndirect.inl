@@ -187,10 +187,23 @@ vec3 getDiffuseBounce(const uint seed, uint bounceIndex, const vec3 n, out float
 #define FIRST_BOUNCE_MIP_BIAS 0
 #define SECOND_BOUNCE_MIP_BIAS 32
 
-#ifdef NRC_ENABLED
-// payload of the last traced bounce, needed to rebuild NRC inputs for the cache records
-ShPayload g_nrcPayload;
+// Max number of diffuse bounces traced by the indirect ray generation:
+//   1 - first bounce only, no diffuse tail after the first hit
+//   2 - the historical behavior: exactly one extra diffuse bounce
+//   3..8 - multi-bounce diffuse path tracing
+// The upper bound of 8 comes from the random salt layout: diffuse bounces
+// 1..8 use RANDOM_SALT_DIFF_BOUNCE salts 9..16 (see Random.h).
+// Compile-time constant ON PURPOSE: it must never move into the global
+// uniform table, or the spv/DLL uniform layout mismatch that once
+// black-screened the renderer comes back. Override before including.
+#ifndef INDIRECT_DIFFUSE_MAX_BOUNCES
+#define INDIRECT_DIFFUSE_MAX_BOUNCES 2
 #endif
+
+// payload of the last traced non-sky bounce; used to rebuild NRC inputs for
+// the cache records, and read by the tail bounce tracing to snapshot the
+// entry state (unconditional - classic builds use it too)
+ShPayload g_lastBouncePayload;
 
 Surface traceBounce(const vec3 originPosition, float originRoughness, uint originInstCustomIndex,
                     const vec3 bounceDir, float bounceMipBias, out vec3 out_emission)
@@ -204,35 +217,87 @@ Surface traceBounce(const vec3 originPosition, float originRoughness, uint origi
         return s;
     }
 
-#ifdef NRC_ENABLED
-    g_nrcPayload = p;
-#endif
+    g_lastBouncePayload = p;
 
     return hitInfoToSurface_Indirect(
         getHitInfoBounce(p, originPosition, originRoughness, bounceMipBias, out_emission), 
         bounceDir);
 }
 
-vec3 processSecondDiffuseBounce(const uint seed, const Surface surf, const vec3 bounceDir, float oneOverPdf)
+// Trace the diffuse tail (bounces 2..INDIRECT_DIFFUSE_MAX_BOUNCES) from the
+// first-bounce hit surface, accumulating (emission + direct illumination) *
+// albedo * 1/pdf through the chain - the same convention the single second
+// bounce used. With INDIRECT_DIFFUSE_MAX_BOUNCES == 2 this is mathematically
+// identical to the previous single-bounce version, RNG stream included.
+// out_secondPayload/out_secondDir capture the state right after the bounce-2
+// trace (hit payload + sampled direction) for NRC cache records.
+vec3 processDiffuseTailBounces( const uint    seed,
+                               const Surface surf,
+                               out ShPayload out_secondPayload,
+                               out vec3      out_secondDir )
 {
-    vec3 emis;
-    const Surface hitSurf = traceBounce(surf.position + surf.normal * 0.01,
-                                        surf.roughness,
-                                        surf.instCustomIndex,
-                                        bounceDir,
-                                        SECOND_BOUNCE_MIP_BIAS,
-                                        emis);
-    emis *= globalUniform.emissionMapBoost;
+    vec3 tail       = vec3( 0.0 );
+    vec3 throughput = vec3( 1.0 );
+    out_secondDir     = vec3( 0.0 );
+    // entry init, silences undefined-variable warnings; overwritten after the bounce-2 trace
+    out_secondPayload = g_lastBouncePayload;
+    Surface curSurf = surf;
 
-    if (hitSurf.isSky)
+    for( int b = 2; b <= INDIRECT_DIFFUSE_MAX_BOUNCES; b++ )
     {
-        return getSky(bounceDir) * oneOverPdf;
+        float oneOverPdf;
+        const vec3 bounceDir = getDiffuseBounce( seed, uint( b ), curSurf.normal, oneOverPdf );
+
+        vec3 emis;
+        const Surface hitSurf = traceBounce( curSurf.position + curSurf.normal * 0.01,
+                                             curSurf.roughness,
+                                             curSurf.instCustomIndex,
+                                             bounceDir,
+                                             SECOND_BOUNCE_MIP_BIAS,
+                                             emis );
+
+        if( b == 2 )
+        {
+            // snapshot for NRC records: payload of the second-bounce trace
+            // (stays the first-bounce payload if that trace hit the sky,
+            //  matching the previous single-bounce behavior)
+            out_secondPayload = g_lastBouncePayload;
+            out_secondDir     = bounceDir;
+        }
+
+        emis *= globalUniform.emissionMapBoost;
+        throughput *= oneOverPdf;
+
+        if( hitSurf.isSky )
+        {
+            tail += throughput * getSky( bounceDir );
+            break;
+        }
+
+        // calculate direct illumination in a hit position; shadow rays for
+        // deeper vertices are gated by maxBounceShadowsLights
+        const vec3 diffuse = processDirectIllumination( seed, hitSurf, b );
+
+        tail       += throughput * ( emis + diffuse ) * hitSurf.albedo;
+        throughput *= hitSurf.albedo;
+        curSurf     = hitSurf;
+
+        // deterministic russian roulette - consumes no random numbers, so the
+        // RNG stream stays identical to the historical 2-bounce path when
+        // INDIRECT_DIFFUSE_MAX_BOUNCES == 2
+        if( getLuminance( throughput ) < 0.01 )
+        {
+            break;
+        }
     }
 
-    // calculate direct illumination in a hit position
-    const vec3 diffuse = processDirectIllumination(seed, hitSurf, 2);
-
-    return (emis + diffuse) * hitSurf.albedo * oneOverPdf;
+    // last-resort guard: a single NaN in the tail would be stored to the
+    // unfiltered indirect image and locked by temporal accumulation forever
+    if( any( isnan( tail ) ) || any( isinf( tail ) ) )
+    {
+        tail = vec3( 0.0 );
+    }
+    return tail;
 }
 
 #ifdef NRC_ENABLED
@@ -299,6 +364,7 @@ SampleIndirect processIndirect( const uint seed, const Surface surf, out float o
     // calculate direct diffuse illumination in a hit position
     vec3 diffuse = processDirectIllumination(seed, hitSurf, 1);
 
+#if INDIRECT_DIFFUSE_MAX_BOUNCES >= 2
 #ifdef NRC_ENABLED
     const bool nrcOn        = globalUniform.nrcEnabled != 0;
     // short-circuit: when off, no RNG is consumed for the train decision,
@@ -307,22 +373,23 @@ SampleIndirect processIndirect( const uint seed, const Surface surf, out float o
     const bool isTrainSample = nrcOn && ( rnd16( seed, RANDOM_SALT_NRC_TRAIN_DECISION ) < trainProbability );
 #endif
 
-    // TODO: investigate why uncommenting this makes diffuse very red
-    // if( globalUniform.indirSecondBounce != 0 )
+    // diffuse bounces after the first hit, gated at compile time by
+    // INDIRECT_DIFFUSE_MAX_BOUNCES; the historical runtime toggle
+    // (indirSecondBounce) once caused a strong red tint when re-enabled,
+    // see git history for the original investigation TODO
     {
 #ifdef NRC_ENABLED
         if( nrcOn )
         {
         if( isTrainSample )
         {
-            // train sample: keep the full second bounce, cache its radiance as the target
-            float oneOverPdf_Second;
-            const vec3 bounceDir_Second = getDiffuseBounce(seed, 2, hitSurf.normal, oneOverPdf_Second);
-
-            vec3 secondBounce = processSecondDiffuseBounce(seed,
-                                                          hitSurf,
-                                                          bounceDir_Second,
-                                                          oneOverPdf_Second);
+            // train sample: trace the full tail, cache its radiance as the target
+            ShPayload secondPayload;
+            vec3      secondDir;
+            const vec3 secondBounce = processDiffuseTailBounces(seed,
+                                                                hitSurf,
+                                                                secondPayload,
+                                                                secondDir);
             diffuse += secondBounce;
 
             uint slot = atomicAdd( uTotalTrainCount, 1 );
@@ -335,10 +402,10 @@ SampleIndirect processIndirect( const uint seed, const Surface surf, out float o
                 record.factor_r           = 0.0;
                 record.factor_g           = 0.0;
                 record.factor_b           = 0.0;
-                record.packed_input.instIdAndIndex      = uint( g_nrcPayload.instIdAndIndex );
-                record.packed_input.geomAndPrimIndex    = uint( g_nrcPayload.geomAndPrimIndex );
-                record.packed_input.barycentric_2x16U   = packHalf2x16( g_nrcPayload.baryCoords );
-                record.packed_input.scattered_dir_2x16U = packHalf2x16( bounceDir_Second.xy );
+                record.packed_input.instIdAndIndex      = uint( secondPayload.instIdAndIndex );
+                record.packed_input.geomAndPrimIndex    = uint( secondPayload.geomAndPrimIndex );
+                record.packed_input.barycentric_2x16U   = packHalf2x16( secondPayload.baryCoords );
+                record.packed_input.scattered_dir_2x16U = packHalf2x16( secondDir.xy );
                 uTrainRecords[ slot ] = record;
             }
         }
@@ -350,9 +417,9 @@ SampleIndirect processIndirect( const uint seed, const Surface surf, out float o
             {
                 NRCEvalRecordRTGL record;
                 record.dst                             = NrcPackDstScreen( ivec2( gl_LaunchIDEXT.xy ) );
-                record.packed_input.instIdAndIndex     = uint( g_nrcPayload.instIdAndIndex );
-                record.packed_input.geomAndPrimIndex   = uint( g_nrcPayload.geomAndPrimIndex );
-                record.packed_input.barycentric_2x16U  = packHalf2x16( g_nrcPayload.baryCoords );
+                record.packed_input.instIdAndIndex     = uint( g_lastBouncePayload.instIdAndIndex );
+                record.packed_input.geomAndPrimIndex   = uint( g_lastBouncePayload.geomAndPrimIndex );
+                record.packed_input.barycentric_2x16U  = packHalf2x16( g_lastBouncePayload.baryCoords );
                 record.packed_input.scattered_dir_2x16U = packHalf2x16( -hitSurf.toViewerDir.xy );
                 uEvalRecords[ slot ] = record;
             }
@@ -360,25 +427,25 @@ SampleIndirect processIndirect( const uint seed, const Surface surf, out float o
         }
         else
         {
-            // NRC disabled at runtime: do the full second bounce, classic path
-            float oneOverPdf_Second;
-            const vec3 bounceDir_Second = getDiffuseBounce(seed, 2, hitSurf.normal, oneOverPdf_Second);
-
-            diffuse += processSecondDiffuseBounce( seed,
-                                                   hitSurf,
-                                                   bounceDir_Second,
-                                                   oneOverPdf_Second );
+            // NRC disabled at runtime: do the full tail, classic path
+            ShPayload unusedPayload;
+            vec3      unusedDir;
+            diffuse += processDiffuseTailBounces( seed,
+                                                  hitSurf,
+                                                  unusedPayload,
+                                                  unusedDir );
         }
 #else
-        float oneOverPdf_Second;
-        const vec3 bounceDir_Second = getDiffuseBounce(seed, 2, hitSurf.normal, oneOverPdf_Second);
+        ShPayload unusedPayload;
+        vec3      unusedDir;
 
-        diffuse += processSecondDiffuseBounce(seed, 
-                                              hitSurf,
-                                              bounceDir_Second,
-                                              oneOverPdf_Second);
+        diffuse += processDiffuseTailBounces( seed,
+                                            hitSurf,
+                                            unusedPayload,
+                                            unusedDir );
 #endif
     }
+#endif // INDIRECT_DIFFUSE_MAX_BOUNCES >= 2
 
     SampleIndirect s = createSampleIndirect( //
         hitSurf.position,

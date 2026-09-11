@@ -350,7 +350,12 @@ bool traceShadowRay(uint surfInstCustomIndex, vec3 start, vec3 end, bool ignoreF
 
 float traceVisibility(const Surface surf, const vec3 lightPosition, uint lightIndex)
 {
-    const vec3 start = surf.position + surf.toViewerDir * RAY_ORIGIN_LEAK_BIAS;
+    // bias along the surface normal instead of the view direction: at grazing
+    // angles the view direction pushes the origin into the wall, which lets
+    // point lights leak through thin / single-sided Doom geometry
+    const float leakBias = max( RAY_ORIGIN_LEAK_BIAS,
+                                distance( surf.position, lightPosition ) * 1e-4 );
+    const vec3 start = surf.position + surf.normal * leakBias;
     const vec3 end = lightPosition;
 
     const bool ignoreFirstPersonViewer = (globalUniform.lightIndexIgnoreFPVShadows == lightIndex);
