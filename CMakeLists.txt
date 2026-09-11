@@ -243,6 +243,96 @@ set_target_properties(RayTracedGL1 PROPERTIES
     OUTPUT_NAME ${LibraryName}
 )
 
+# ---- Automatic shader (SPIR-V) generation ----
+# Wires Source/Shaders/GenerateShaders.py into the normal build: building
+# RayTracedGL1 (and thus zdoom, which depends on it) first compiles all GLSL
+# to SPIR-V and syncs the results into the runtime shader folder, so Visual
+# Studio can never run against stale shaders.
+find_package(Python3 QUIET COMPONENTS Interpreter)
+
+if(Python3_FOUND)
+    set(RTGL_SHADER_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Source/Shaders)
+    set(RTGL_SHADER_OUT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Build/shaders)
+    set(RTGL_SHADER_GEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Source/Generated)
+    set(RTGL_SHADER_RUN_DIR ${CMAKE_BINARY_DIR}/rt/shaders)
+
+    # The Python script compiles shader files from the shader folder root
+    # only (non-recursive os.listdir), so match that here.
+    file(GLOB RTGL_SHADER_SOURCES CONFIGURE_DEPENDS
+        ${RTGL_SHADER_SRC_DIR}/*.comp
+        ${RTGL_SHADER_SRC_DIR}/*.vert
+        ${RTGL_SHADER_SRC_DIR}/*.frag
+        ${RTGL_SHADER_SRC_DIR}/*.rgen
+        ${RTGL_SHADER_SRC_DIR}/*.rahit
+        ${RTGL_SHADER_SRC_DIR}/*.rchit
+        ${RTGL_SHADER_SRC_DIR}/*.rmiss
+    )
+    # Everything shaders #include: headers in subfolders (CAS/, LPM/), shared
+    # .glsl includes and the generated GLSL layout header.
+    file(GLOB_RECURSE RTGL_SHADER_HEADERS CONFIGURE_DEPENDS
+        ${RTGL_SHADER_SRC_DIR}/*.h
+        ${RTGL_SHADER_SRC_DIR}/*.inl
+        ${RTGL_SHADER_SRC_DIR}/*.glsl
+    )
+    # "Build/" holds the script's own mtime cache, not shader dependencies.
+    list(FILTER RTGL_SHADER_HEADERS EXCLUDE REGEX "/Build/|/\\.vscode/")
+
+    set(RTGL_SPIRV_OUTPUTS "")
+    foreach(src IN LISTS RTGL_SHADER_SOURCES)
+        get_filename_component(name ${src} NAME)
+        list(APPEND RTGL_SPIRV_OUTPUTS ${RTGL_SHADER_OUT_DIR}/${name}.spv)
+    endforeach()
+
+    # 1) Regenerate the shared uniform layout headers when the layout
+    #    description changes. ShaderCommonCFramebuf.cpp (in ${Sources})
+    #    is picked up by MSVC header tracking.
+    add_custom_command(
+        OUTPUT
+            ${RTGL_SHADER_GEN_DIR}/ShaderCommonC.h
+            ${RTGL_SHADER_GEN_DIR}/ShaderCommonCFramebuf.h
+            ${RTGL_SHADER_GEN_DIR}/ShaderCommonCFramebuf.cpp
+            ${RTGL_SHADER_GEN_DIR}/ShaderCommonGLSL.h
+        COMMAND "${Python3_EXECUTABLE}" ${RTGL_SHADER_GEN_DIR}/GenerateShaderCommon.py --path ${RTGL_SHADER_GEN_DIR}/
+        DEPENDS ${RTGL_SHADER_GEN_DIR}/GenerateShaderCommon.py
+        COMMENT "RTGL: generating shader uniform layout headers"
+        VERBATIM
+    )
+
+    # 2) Compile GLSL to SPIR-V. The script has its own mtime/dependency
+    #    cache, so unchanged shaders are skipped in seconds; failed
+    #    compiles exit non-zero and fail the build.
+    #    NOTE: do NOT put the runtime-folder sync here - this rule is
+    #    skipped entirely when the .spv outputs are already up to date,
+    #    so anything else in it would never run in that case.
+    add_custom_command(
+        OUTPUT ${RTGL_SPIRV_OUTPUTS}
+        COMMAND "${Python3_EXECUTABLE}" ${RTGL_SHADER_SRC_DIR}/GenerateShaders.py
+        WORKING_DIRECTORY ${RTGL_SHADER_SRC_DIR}
+        DEPENDS
+            ${RTGL_SHADER_SOURCES}
+            ${RTGL_SHADER_HEADERS}
+            ${RTGL_SHADER_SRC_DIR}/GenerateShaders.py
+            ${RTGL_SHADER_GEN_DIR}/GenerateShaderCommon.py
+            ${RTGL_SHADER_GEN_DIR}/ShaderCommonGLSL.h
+        COMMENT "RTGL: compiling shaders (SPIR-V)"
+        VERBATIM
+    )
+
+    # 3) Always sync the freshest .spv files into the runtime folder.
+    #    A custom target's COMMANDs run on every build (the target itself
+    #    is always out of date), while DEPENDS pulls in the compile rule
+    #    above only when shader sources actually changed.
+    add_custom_target(RtglShaders
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${RTGL_SHADER_RUN_DIR}
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${RTGL_SPIRV_OUTPUTS} ${RTGL_SHADER_RUN_DIR}
+        DEPENDS ${RTGL_SPIRV_OUTPUTS}
+        COMMENT "RTGL: syncing shaders to ${RTGL_SHADER_RUN_DIR}"
+        VERBATIM
+    )
+    add_dependencies(RayTracedGL1 RtglShaders)
+else()
+    message(STATUS "Python3 not found - automatic RTGL shader generation is disabled; run Source/Shaders/GenerateShaders.py manually")
+endif()
 # When built as a GZDoom subproject, GZDoom defines _WIN32_WINNT=0x0600 and UNICODE/_UNICODE.
 # RTGL1 needs Win7+ DisplayConfig APIs (0x0601) and Streamline needs Win10+ WinTrust APIs (0x0A00);
 # its sources also assume ANSI Windows API entry points. Override for this target only.
