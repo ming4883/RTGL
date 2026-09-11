@@ -43,6 +43,8 @@ void RTGL1::VulkanDevice::Dev_Override( RgDrawFrameIlluminationParams&,
 {
 }
 
+void RTGL1::VulkanDevice::Dev_Override( RgDrawFrameNRCParams& ) const {}
+
 void RTGL1::VulkanDevice::Dev_TryBreak( const char*, bool ) {}
 
 void RTGL1::VulkanDevice::DrawEndUserWarnings() {}
@@ -381,6 +383,32 @@ void RTGL1::VulkanDevice::Dev_Draw() const
                                 0.0f,
                                 1.0f,
                                 "%.2f" );
+            if( ImGui::TreeNode( "NRC (Neural Radiance Cache)" ) )
+            {
+                ImGui::SliderFloat( "Train probability",
+                                    &modifiers.nrcTrainProbability,
+                                    0.0f,
+                                    1.0f,
+                                    "%.3f" );
+                ImGui::SliderInt( "Train batch size",
+                                  &modifiers.nrcTrainBatchSize,
+                                  0,
+                                  65536,
+                                  "%d",
+                                  ImGuiSliderFlags_AlwaysClamp );
+                ImGui::SliderFloat( "Learning rate",
+                                    &modifiers.nrcLearningRate,
+                                    0.0f,
+                                    0.02f,
+                                    "%.4f",
+                                    ImGuiSliderFlags_Logarithmic );
+                ImGui::SliderFloat( "EMA alpha",
+                                    &modifiers.nrcEmaAlpha,
+                                    0.8f,
+                                    1.0f,
+                                    "%.4f" );
+                ImGui::TreePop();
+            }
             ImGui::TreePop();
         }
         if( ImGui::TreeNode( "Texturing" ) )
@@ -1410,6 +1438,31 @@ void RTGL1::VulkanDevice::Dev_Override( RgDrawFrameIlluminationParams& illuminat
             modifiers.emissionMapBoost       = src_tex.emissionMapBoost;
             modifiers.emissionMaxScreenColor = src_tex.emissionMaxScreenColor;
         }
+    }
+}
+
+void RTGL1::VulkanDevice::Dev_Override( RgDrawFrameNRCParams& nrc ) const
+{
+    if( !Dev_IsDevmodeInitialized() )
+    {
+        return;
+    }
+
+    auto& modifiers = devmode->drawInfoOvrd;
+
+    if( modifiers.enable )
+    {
+        nrc.trainProbability = modifiers.nrcTrainProbability;
+        nrc.trainBatchSize   = uint32_t( std::clamp( modifiers.nrcTrainBatchSize, 0, 65536 ) );
+        nrc.learningRate     = modifiers.nrcLearningRate;
+        nrc.emaAlpha         = modifiers.nrcEmaAlpha;
+    }
+    else
+    {
+        modifiers.nrcTrainProbability = nrc.trainProbability;
+        modifiers.nrcTrainBatchSize   = int( nrc.trainBatchSize );
+        modifiers.nrcLearningRate     = nrc.learningRate;
+        modifiers.nrcEmaAlpha         = nrc.emaAlpha;
     }
 }
 

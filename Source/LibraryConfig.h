@@ -42,6 +42,8 @@ struct LibraryConfig
     bool dx12Validation              = false;
     bool dxgiToVkSwapchainSwitchHack = true;
     bool dlssForceDefaultPreset      = false;
+    // NRC (neural radiance cache) for indirect lighting, startup-level switch
+    bool nrcEnabled                  = true;
 
     // When adding fields, modify the entry in JsonParser.cpp
 };

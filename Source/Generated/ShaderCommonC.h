@@ -240,6 +240,7 @@ struct ShGlobalUniform
     float cameraPositionPrev[4];
     uint32_t debugShowFlags;
     uint32_t indirSecondBounce;
+    uint32_t nrcEnabled;
     uint32_t lightCount;
     uint32_t lightCountPrev;
     float emissionMapBoost;

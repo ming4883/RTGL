@@ -29,6 +29,7 @@
 #include "RenderResolutionHelper.h"
 #include "RgException.h"
 #include "DX12_Interop.h"
+#include "NRCCache.h"
 
 #include "Generated/ShaderCommonC.h"
 
@@ -331,6 +332,14 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         device, 
         memAllocator );
 
+    nrcCache = std::make_shared< NRCCache >(
+        device,
+        memAllocator,
+        framebuffers,
+        cmdManager,
+        *uniform,
+        m_supportsCoopmat && LibConfig().nrcEnabled );
+
     blueNoise = std::make_shared< BlueNoise >(
         device,
         ovrdFolder / "BlueNoise_LDR_RGBA_128.ktx2", 
@@ -363,7 +372,8 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
     shaderManager = std::make_shared< ShaderManager >( 
         device, 
         ovrdFolder / SHADERS_FOLDER,
-        m_supportsRayQueryAndPositionFetch );
+        m_supportsRayQueryAndPositionFetch,
+        m_supportsCoopmat && LibConfig().nrcEnabled );
 
     scene = std::make_shared< Scene >(
         device, 
@@ -438,6 +448,7 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
         *textureManager,
         *framebuffers,
         *restirBuffers,
+        *nrcCache,
         *blueNoise,
         *lightManager,
         *cubemapManager,
@@ -556,6 +567,7 @@ RTGL1::VulkanDevice::VulkanDevice( const RgInstanceCreateInfo* info )
 
     framebuffers->Subscribe( rasterizer );
     framebuffers->Subscribe( restirBuffers );
+    framebuffers->Subscribe( nrcCache );
     if( amdFsr2 )
     {
         framebuffers->Subscribe( amdFsr2 );
@@ -581,6 +593,7 @@ RTGL1::VulkanDevice::~VulkanDevice()
     cmdManager.reset();
     framebuffers.reset();
     restirBuffers.reset();
+    nrcCache.reset();
     volumetric.reset();
     fluid.reset();
     tonemapping.reset();
@@ -995,11 +1008,43 @@ void RTGL1::VulkanDevice::CreateDevice()
         .runtimeDescriptorArray                     = 1,
         .timelineSemaphore                          = 1,
         .bufferDeviceAddress                        = 1,
+        .vulkanMemoryModel                          = 1,
+        .vulkanMemoryModelDeviceScope               = 1,
     };
+
+    // NRC: requiredSubgroupSize / REQUIRE_FULL_SUBGROUPS_BIT on the NRC compute
+    // pipelines needs subgroup size control. Enabled through the
+    // VK_EXT_subgroup_size_control device extension rather than
+    // VkPhysicalDeviceVulkan13Features, because the instance is created at
+    // apiVersion 1.2 - raising it to 1.3 would change device enumeration and
+    // validation behaviour globally, which is out of scope here.
+    const bool supportsSubgroupSizeControl =
+        l_supported( VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME );
+
+    VkPhysicalDeviceSubgroupSizeControlFeatures subgroupSizeControlFeatures = {
+        .sType                = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES,
+        .pNext                = nullptr,
+        .subgroupSizeControl  = VK_TRUE,
+        .computeFullSubgroups = VK_TRUE,
+    };
+
+    // synchronization2 goes back into its own extension feature struct. It must
+    // not be chained alongside VkPhysicalDeviceVulkan13Features
+    // (VUID-VkDeviceCreateInfo-pNext-06532); with the 1.3 struct gone this is
+    // again the only declaration of the feature in the chain.
+    VkPhysicalDeviceSynchronization2FeaturesKHR sync2Features = {
+        .sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
+        .pNext            = &vulkan12Features,
+        .synchronization2 = VK_TRUE,
+    };
+
+    subgroupSizeControlFeatures.pNext = &sync2Features;
 
     VkPhysicalDeviceMultiviewFeatures multiviewFeatures = {
         .sType     = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES,
-        .pNext     = &vulkan12Features,
+        .pNext     = supportsSubgroupSizeControl
+                         ? reinterpret_cast< VkBaseOutStructure* >( &subgroupSizeControlFeatures )
+                         : reinterpret_cast< VkBaseOutStructure* >( &sync2Features ),
         .multiview = 1,
     };
 
@@ -1009,15 +1054,9 @@ void RTGL1::VulkanDevice::CreateDevice()
         .storageBuffer16BitAccess = 1,
     };
 
-    VkPhysicalDeviceSynchronization2FeaturesKHR sync2Features = {
-        .sType            = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR,
-        .pNext            = &storage16,
-        .synchronization2 = 1,
-    };
-
     VkPhysicalDeviceRayTracingPipelineFeaturesKHR rtPipelineFeatures = {
         .sType              = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR,
-        .pNext              = &sync2Features,
+        .pNext              = &storage16,
         .rayTracingPipeline = 1,
     };
 
@@ -1025,6 +1064,19 @@ void RTGL1::VulkanDevice::CreateDevice()
         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR,
         .pNext = &rtPipelineFeatures,
         .accelerationStructure = 1,
+    };
+
+    auto coopmatFeatures = VkPhysicalDeviceCooperativeMatrixFeaturesNV{
+        .sType             = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_NV,
+        .pNext             = &asFeatures,
+        .cooperativeMatrix = 1,
+    };
+
+    auto atomicFloatFeatures = VkPhysicalDeviceShaderAtomicFloatFeaturesEXT{
+        .sType                      = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_ATOMIC_FLOAT_FEATURES_EXT,
+        .pNext                      = &coopmatFeatures,
+        .shaderBufferFloat32Atomics = 1,
+        .shaderBufferFloat32AtomicAdd = 1,
     };
 
     auto positionFetchFeatures = VkPhysicalDeviceRayTracingPositionFetchFeaturesKHR{
@@ -1039,9 +1091,32 @@ void RTGL1::VulkanDevice::CreateDevice()
         .rayQuery = 1,
     };
 
+    // NRC: re-evaluate coopmat support BEFORE assembling the pNext chain. The
+    // extension-push block further below runs after chain assembly, so
+    // m_supportsCoopmat was still false at that point and the coopmat/atomicFloat
+    // feature structs were never actually chained (feature bits only apply when
+    // their struct is present in pNext)
+    m_supportsCoopmat = physDevice->SupportsCoopmat() &&
+                        l_supported( VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME ) &&
+                        l_supported( VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME );
+
+    // NRC: when ray query AND coopmat are both supported, ALL feature structs must be
+    // chained into pNext (features are only applied when their struct is in the chain).
+    // Previously coopmat/atomicFloat were mutually exclusive with ray query, so on
+    // RTX cards the cooperative-matrix and atomic-float features were silently not
+    // enabled while the extensions were active and NRC shaders used them - crashing
+    // the NVIDIA driver inside vkCmdBindDescriptorSets/vkCmdDispatch.
+    // Chain: Features2 -> rtQuery -> positionFetch -> atomicFloat -> coopmat -> asFeatures.
+    positionFetchFeatures.pNext = m_supportsCoopmat
+        ? reinterpret_cast< VkBaseOutStructure* >( &atomicFloatFeatures )
+        : reinterpret_cast< VkBaseOutStructure* >( &asFeatures );
+    atomicFloatFeatures.pNext   = &coopmatFeatures;
+    coopmatFeatures.pNext       = &asFeatures;
+    coopmatFeatures.cooperativeMatrix = m_supportsCoopmat ? VK_TRUE : VK_FALSE;
+
     auto physicalDeviceFeatures2 = VkPhysicalDeviceFeatures2{
-        .sType    = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
-        .pNext    = selectPtr( m_supportsRayQueryAndPositionFetch, &rtQueryFeatures, &asFeatures ),
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+        .pNext = &rtQueryFeatures,
         .features = features,
     };
 
@@ -1066,6 +1141,22 @@ void RTGL1::VulkanDevice::CreateDevice()
     {
         deviceExtensions.push_back( VK_KHR_RAY_QUERY_EXTENSION_NAME );
         deviceExtensions.push_back( VK_KHR_RAY_TRACING_POSITION_FETCH_EXTENSION_NAME );
+    }
+
+    if( m_supportsCoopmat )
+    {
+        deviceExtensions.push_back( VK_NV_COOPERATIVE_MATRIX_EXTENSION_NAME );
+        deviceExtensions.push_back( VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME );
+    }
+
+    if( supportsSubgroupSizeControl )
+    {
+        deviceExtensions.push_back( VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME );
+    }
+    else
+    {
+        debug::Warning(
+            "NRC is disabled: VK_NV_cooperative_matrix / VK_EXT_shader_atomic_float is not supported" );
     }
 
     if( auto d = DLSS2::RequiredVulkanExtensions_Device( physDevice->Get() ) )

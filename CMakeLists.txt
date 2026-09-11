@@ -81,6 +81,7 @@ set(Sources
     "Source/ImageLoaderDev.cpp"
     "Source/PortalList.cpp"
     "Source/RestirBuffers.cpp"
+    "Source/NRCCache.cpp"
     "Source/Volumetric.cpp"
     "Source/DebugWindows.cpp"
     "Source/ScratchImmediate.cpp"

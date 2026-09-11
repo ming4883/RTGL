@@ -549,6 +549,7 @@ GLOBAL_UNIFORM_STRUCT = [
 
     (TYPE_UINT32,       1,      "debugShowFlags",               1),
     (TYPE_UINT32,       1,      "indirSecondBounce",            1),
+    (TYPE_UINT32,       1,      "nrcEnabled",                   1),
     (TYPE_UINT32,       1,      "lightCount",                   1),
     (TYPE_UINT32,       1,      "lightCountPrev",               1),
 

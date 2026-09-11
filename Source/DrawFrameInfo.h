@@ -93,6 +93,7 @@ namespace detail
     template<> constexpr auto TypeToStructureType< RgOriginalTextureDetailsEXT          > = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_DETAILS_EXT         ;
     template<> constexpr auto TypeToStructureType< RgSpawnFluidInfo                     > = RG_STRUCTURE_TYPE_SPAWN_FLUID_INFO                     ;
     template<> constexpr auto TypeToStructureType< RgStartFrameFluidParams              > = RG_STRUCTURE_TYPE_START_FRAME_FLUID_PARAMS             ;
+    template<> constexpr auto TypeToStructureType< RgDrawFrameNRCParams                 > = RG_STRUCTURE_TYPE_DRAW_FRAME_NRC_PARAMS                ;
     // clang-format on
 
     template< typename T >
@@ -136,6 +137,7 @@ namespace detail
     static_assert( CheckMembers< RgOriginalTextureDetailsEXT >() );
     static_assert( CheckMembers< RgSpawnFluidInfo >() );
     static_assert( CheckMembers< RgStartFrameFluidParams >() );
+    static_assert( CheckMembers< RgDrawFrameNRCParams >() );
 
 
     template< typename T >
@@ -167,6 +169,7 @@ namespace detail
     template<> struct LinkRootHelper< RgDrawFrameSkyParams               >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFrameTexturesParams          >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFramePostEffectsParams       >{ using Root = RgDrawFrameInfo; };
+    template<> struct LinkRootHelper< RgDrawFrameNRCParams                >{ using Root = RgDrawFrameInfo; };
     // clang-format on
 
     template< typename T >
@@ -268,6 +271,21 @@ namespace detail
             .color          = { 1, 1, 1 },
             .particleBudget = 64 * 1024,
             .particleRadius = 0.1f,
+        };
+    };
+
+    template<>
+    struct DefaultParams< RgDrawFrameNRCParams >
+    {
+        constexpr static auto sType = detail::TypeToStructureType< RgDrawFrameNRCParams >;
+
+        constexpr static RgDrawFrameNRCParams value = {
+            .sType            = sType,
+            .pNext            = nullptr,
+            .trainProbability = 0.25f,
+            .trainBatchSize   = 16384,
+            .learningRate     = 0.002f,
+            .emaAlpha         = 0.99f,
         };
     };
 

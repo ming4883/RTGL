@@ -185,6 +185,7 @@ typedef enum RgStructureType
     RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS  = 33,
     RG_STRUCTURE_TYPE_SPAWN_FLUID_INFO                      = 34,
     RG_STRUCTURE_TYPE_START_FRAME_FLUID_PARAMS              = 35,
+    RG_STRUCTURE_TYPE_DRAW_FRAME_NRC_PARAMS                 = 36,
 } RgStructureType;
 
 typedef enum RgTextureSwizzling
@@ -958,6 +959,31 @@ typedef struct RgDrawFrameIlluminationParams
     // Null, if none.
     const uint64_t* lightUniqueIdIgnoreFirstPersonViewerShadows;
 } RgDrawFrameIlluminationParams;
+
+// Can be linked after RgDrawFrameInfo.
+// Neural Radiance Cache (NRC) tuning parameters. The cache must be active
+// (VK_NV_cooperative_matrix supported AND enabled in RTGL1.json) for these to
+// have any effect.
+typedef struct RgDrawFrameNRCParams
+{
+    RgStructureType sType;
+    void*           pNext;
+    // Portion of pixels [0.0, 1.0] that trace the real second diffuse bounce
+    // (and serve as training data). The rest use the cached network output.
+    // Default: 0.25
+    float           trainProbability;
+    // Max training records per frame, clamped to [0, 65536]. Should be a
+    // multiple of 128 to match the gradient dispatch workgroup size.
+    // Default: 16384
+    uint32_t        trainBatchSize;
+    // Adam learning rate for the online training.
+    // Default: 0.002
+    float           learningRate;
+    // EMA smoothing factor for the inference weights (weights used for
+    // inference are the exponential moving average of the Adam trajectory).
+    // Default: 0.99
+    float           emaAlpha;
+} RgDrawFrameNRCParams;
 
 // Can be linked after RgDrawFrameInfo.
 typedef struct RgDrawFrameVolumetricParams

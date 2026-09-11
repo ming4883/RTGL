@@ -57,7 +57,7 @@ auto LoadInterposerDll( const std::filesystem::path& folder ) -> HMODULE
 
     if( !sl::security::verifyEmbeddedSignature( dllPath.c_str() ) )
     {
-        RTGL1::debug::Error(
+        RTGL1::debug::Warning(
             "(NVIDIA Streamline): Failed to verify signature for NVIDIA Streamline: {}",
             dllPath.string() );
         return nullptr;

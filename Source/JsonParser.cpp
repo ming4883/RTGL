@@ -230,9 +230,10 @@ JSON_TYPE( RTGL1::LibraryConfig )
     , "dxgiToVkSwapchainSwitchHack", &T::dxgiToVkSwapchainSwitchHack
     , "dx12Validation", &T::dx12Validation
     , "fsrValidation", &T::fsrValidation
+    , "nrcEnabled", &T::nrcEnabled
 JSON_TYPE_END;
 // clang-format on
-static_assert( sizeof( RTGL1::LibraryConfig ) == 9, "Add definitions to parser" );
+static_assert( sizeof( RTGL1::LibraryConfig ) == 10, "Add definitions to parser" );
 
 auto RTGL1::json_parser::detail::ReadLibraryConfig( const std::filesystem::path& path )
     -> std::optional< LibraryConfig >
