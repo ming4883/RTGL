@@ -236,6 +236,7 @@ struct ShGlobalUniform
     vec4 cameraPositionPrev;
     uint debugShowFlags;
     uint indirSecondBounce;
+    uint nrcEnabled;
     uint lightCount;
     uint lightCountPrev;
     float emissionMapBoost;

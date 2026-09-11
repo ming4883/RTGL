@@ -61,6 +61,12 @@ struct Devmode
         float indirectDiffuseSensitivityToChange;
         float specularSensitivityToChange;
 
+        // NRC runtime knobs (RgDrawFrameNRCParams)
+        float nrcTrainProbability;
+        int   nrcTrainBatchSize;
+        float nrcLearningRate;
+        float nrcEmaAlpha;
+
         bool  disableEyeAdaptation;
         float ev100Min;
         float ev100Max;

@@ -26,8 +26,14 @@ import pathlib
 
 
 TARGET_FOLDER_PATH           = "../../Build/shaders/"
-# TODO: improve extensibility
-GLSLC_EXE                    = "../../Source/VulkanSDK/1.3.280.0/Bin/glslc.exe"
+
+# Prefer a newer glslc from the system Vulkan SDK if available: the vendored
+# 1.3.280 glslc (glslang 11.x) has a type-dedup bug that leaks ArrayStride
+# decorations onto Workgroup variables (VUID-StandaloneSpirv-None-10684,
+# e.g. CmLuminanceAvg.comp). Fall back to the vendored one if not found.
+VENDORED_GLSLC_EXE           = "../../Source/VulkanSDK/1.3.280.0/Bin/glslc.exe"
+SYSTEM_GLSLC_EXE             = os.path.join(os.environ.get("VULKAN_SDK", ""), "Bin", "glslc.exe")
+GLSLC_EXE                    = SYSTEM_GLSLC_EXE if os.path.isfile(SYSTEM_GLSLC_EXE) else VENDORED_GLSLC_EXE
 
 
 CACHE_FOLDER_PATH           = "Build/"
@@ -243,9 +249,16 @@ def main():
         if filename not in cache or isOutdated or wereDependentModified(dependencyMap, modifiedDependent, cache, filename):
             print("> Building " + os.path.basename(filename))
 
+            # NRC coopmat kernels require the subgroup size as a compile-time define
+            extraDefines = []
+            baseName = os.path.basename(filename)
+            if baseName.startswith("Nrc") and ("Inference" in baseName or "Gradient" in baseName):
+                subgroupSize = 32 if "_32" in baseName else 16
+                extraDefines = [ "-DNRC_GLSL_SUBGROUP_SIZE=" + str(subgroupSize) ]
+
             r = subprocess.run([
                 GLSLC_EXE, "--target-env=vulkan1.2"
-                ] + getDependentFoldersProcArg() + [
+                ] + getDependentFoldersProcArg() + extraDefines + [
                 filename, 
                 "-o", targetSpvFile], 
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)

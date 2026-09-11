@@ -1,4 +1,4 @@
-// Copyright (c) 2020-2021 Sultim Tsyrendashiev
+﻿// Copyright (c) 2020-2021 Sultim Tsyrendashiev
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -30,6 +30,7 @@
 #include "PortalList.h"
 #include "RestirBuffers.h"
 #include "Volumetric.h"
+#include "NRCCache.h"
 
 namespace RTGL1
 {
@@ -46,6 +47,7 @@ public:
                         const TextureManager&              textureManager,
                         const Framebuffers&                framebuffers,
                         const RestirBuffers&               restirBuffers,
+                        const NRCCache&                    nrcCache,
                         const BlueNoise&                   blueNoise,
                         const LightManager&                lightManager,
                         const CubemapManager&              cubemapManager,
@@ -62,6 +64,7 @@ public:
 
     auto GetShaderTableSafely_RayTracing( VkCommandBuffer cmd ) -> VkPipeline;
     auto GetPipelineIndirectFinal_Compute() -> VkPipeline;
+    auto GetPipelineNRC( uint32_t index ) -> VkPipeline;
 
     void                GetEntries( uint32_t                         sbtRayGenIndex,
                                     VkStridedDeviceAddressRegionKHR& raygenEntry,
@@ -115,6 +118,9 @@ private:
     VkPipelineLayout                                    rtPipelineLayout;
     VkPipeline                                          rtPipeline;
     VkPipeline                                          compPipelineIndirectFinal{};
+    // 0/1: NrcInference subgroup 16/32; 2/3: NrcGradient subgroup 16/32; 4: TrainPrepare; 5: Optimize
+    VkPipeline                                          nrcCompPipelines[ 6 ]{};
+    const NRCCache*                                     nrcCache = nullptr;
 
     std::shared_ptr< AutoBuffer >                       shaderBindingTable;
     bool                                                copySBTFromStaging;

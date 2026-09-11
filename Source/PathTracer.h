@@ -28,6 +28,7 @@
 #include "PortalList.h"
 #include "RestirBuffers.h"
 #include "Volumetric.h"
+#include "NRCCache.h"
 
 namespace RTGL1
 {
@@ -46,6 +47,7 @@ public:
         uint32_t                         height     = 0;
         std::shared_ptr< Framebuffers >  framebuffers;
         std::shared_ptr< RestirBuffers > restirBuffers;
+        const NRCCache*                  nrcCache = nullptr;
     };
 
 public:
@@ -70,7 +72,8 @@ public:
                       const CubemapManager& cubemapManager,
                       const RenderCubemap&  renderCubemap,
                       const PortalList&     portalList,
-                      const Volumetric&     volumetric );
+                      const Volumetric&     volumetric,
+                      const NRCCache*       nrcCache );
 
     // Includes BindDescSet
     TraceParams BindRayTracing( VkCommandBuffer                  cmd,
@@ -82,6 +85,7 @@ public:
                                 const TextureManager&            textureManager,
                                 std::shared_ptr< Framebuffers >  framebuffers,
                                 std::shared_ptr< RestirBuffers > restirBuffers,
+                                const NRCCache*                  nrcCache,
                                 const BlueNoise&                 blueNoise,
                                 const LightManager&              lightManager,
                                 const CubemapManager&            cubemapManager,
@@ -111,6 +115,38 @@ public:
                                                       const PortalList&     portalList,
                                                       const Volumetric&     volumetric );
     void        TraceVolumetric( const TraceParams& params );
+
+    void        NrcInference( VkCommandBuffer      cmd,
+                              uint32_t             frameIndex,
+                              uint32_t             width,
+                              uint32_t             height,
+                              Scene&               scene,
+                              const GlobalUniform& uniform,
+                              const TextureManager& textureManager,
+                              Framebuffers&        framebuffers,
+                              const RestirBuffers& restirBuffers,
+                              const BlueNoise&     blueNoise,
+                              const LightManager&  lightManager,
+                              const CubemapManager& cubemapManager,
+                              const RenderCubemap& renderCubemap,
+                              const PortalList&    portalList,
+                              const Volumetric&    volumetric,
+                              const NRCCache&      nrcCache );
+
+    void        NrcTrain( VkCommandBuffer      cmd,
+                          uint32_t             frameIndex,
+                          Scene&               scene,
+                          const GlobalUniform& uniform,
+                          const TextureManager& textureManager,
+                          Framebuffers&        framebuffers,
+                          const RestirBuffers& restirBuffers,
+                          const BlueNoise&     blueNoise,
+                          const LightManager&  lightManager,
+                          const CubemapManager& cubemapManager,
+                          const RenderCubemap& renderCubemap,
+                          const PortalList&    portalList,
+                          const Volumetric&    volumetric,
+                          const NRCCache&      nrcCache );
 
 private:
     void TraceRays( VkCommandBuffer cmd,

@@ -1,4 +1,4 @@
-// Copyright (c) 2020-2021 Sultim Tsyrendashiev
+﻿// Copyright (c) 2020-2021 Sultim Tsyrendashiev
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -38,7 +38,8 @@ class ShaderManager
 public:
     explicit ShaderManager( VkDevice              device,
                             std::filesystem::path shaderFolderPath,
-                            bool                  supportsRayQueryAndPositionFetch );
+                            bool                  supportsRayQueryAndPositionFetch,
+                            bool                  supportsCoopmat );
     ~ShaderManager();
 
     ShaderManager( const ShaderManager& other )                = delete;
@@ -77,6 +78,7 @@ private:
     VkDevice              device;
     std::filesystem::path shaderFolderPath;
     bool                  supportsRayQueryAndPositionFetch;
+    bool                  supportsCoopmat;
 
     rgl::unordered_map< std::filesystem::path, ShaderModule > modules;
 

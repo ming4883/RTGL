@@ -571,6 +571,11 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
     }
 
     gu->antiFireflyEnabled = devmode ? devmode->antiFirefly : true;
+    // NRC is advertised to the shader only when the cache is active for this
+    // session (coopmat supported AND enabled in RTGL1.json, see startup in
+    // VulkanDevice_Init.cpp). Otherwise the shader must take the classic
+    // full second bounce path, or indirect lighting is silently darkened.
+    gu->nrcEnabled         = ( nrcCache && nrcCache->IsActive() ) ? 1u : 0u;
 
     if( swapchain->IsHDREnabled() )
     {
@@ -591,7 +596,8 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
 
     const uint32_t frameIndex = currentFrameState.GetFrameIndex();
     const double   timeDelta  = std::max< double >( currentFrameTime - previousFrameTime, 0.0001 );
-    const bool     resetHistory = drawInfo.resetHistory;
+
+    const bool resetHistory = drawInfo.resetHistory;
 
 
     const auto& cameraInfo = scene->GetCamera( renderResolution.Aspect() );
@@ -607,6 +613,26 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
     lightManager->SubmitForFrame( cmd, frameIndex );
 
     uniform->Upload( cmd, frameIndex );
+
+    if( nrcCache->IsActive() )
+    {
+        // runtime NRC tuning knobs from the pnext chain (defaults mirror the
+        // compile-time NrcCommon.glsl values; ignored when the cache is off)
+        const auto& nrcParams = pnext::get< RgDrawFrameNRCParams >( drawInfo );
+
+        nrcCache->UpdateFrameParams( cmd,
+                                     frameIndex,
+                                     uniform->GetData()->cameraPosition,
+                                     uniform->GetData()->frameId,
+                                     renderResolution.Width(),
+                                     renderResolution.Height(),
+                                     nrcParams.trainProbability,
+                                     nrcParams.trainBatchSize,
+                                     nrcParams.learningRate,
+                                     nrcParams.emaAlpha );
+
+        nrcCache->ZeroCounters( cmd );
+    }
 
     // submit geometry and upload uniform after getting data from a scene
     scene->SubmitForFrame( cmd,
@@ -680,6 +706,7 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
                                                         *textureManager,
                                                         framebuffers,
                                                         restirBuffers,
+                                                        nrcCache.get(),
                                                         *blueNoise,
                                                         *lightManager,
                                                         *cubemapManager,
@@ -708,6 +735,27 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
         pathTracer->CalculateInitialReservoirs( params );
         pathTracer->TraceDirectllumination( params );
         pathTracer->TraceIndirectllumination( params );
+
+        if( nrcCache->IsActive() )
+        {
+            pathTracer->NrcInference( cmd,
+                                      frameIndex,
+                                      renderResolution.Width(),
+                                      renderResolution.Height(),
+                                      *scene,
+                                      *uniform,
+                                      *textureManager,
+                                      *framebuffers,
+                                      *restirBuffers,
+                                      *blueNoise,
+                                      *lightManager,
+                                      *cubemapManager,
+                                      *rasterizer->GetRenderCubemap(),
+                                      *portalList,
+                                      *volumetric,
+                                      *nrcCache );
+        }
+
         pathTracer->TraceVolumetric( params );
 
         if( fluid )
@@ -735,6 +783,24 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
                                                           *rasterizer->GetRenderCubemap(),
                                                           *portalList,
                                                           *volumetric );
+        if( nrcCache->IsActive() )
+        {
+            pathTracer->NrcTrain( cmd,
+                                  frameIndex,
+                                  *scene,
+                                  *uniform,
+                                  *textureManager,
+                                  *framebuffers,
+                                  *restirBuffers,
+                                  *blueNoise,
+                                  *lightManager,
+                                  *cubemapManager,
+                                  *rasterizer->GetRenderCubemap(),
+                                  *portalList,
+                                  *volumetric,
+                                  *nrcCache );
+        }
+
         denoiser->Denoise( cmd, frameIndex, uniform );
         volumetric->ProcessScattering(
             cmd, frameIndex, *uniform, *blueNoise, *framebuffers, volumetricMaxHistoryLen );
@@ -1481,15 +1547,18 @@ void RTGL1::VulkanDevice::DrawFrame( const RgDrawFrameInfo* pOriginalInfo )
         auto modified_Illumination = pnext::get< RgDrawFrameIlluminationParams >( original );
         auto modified_Tonemapping  = pnext::get< RgDrawFrameTonemappingParams >( original );
         auto modified_Textures     = pnext::get< RgDrawFrameTexturesParams >( original );
+        auto modified_NRC          = pnext::get< RgDrawFrameNRCParams >( original );
 
         // clang-format off
         modified_Illumination   .pNext = modified.pNext;
         modified_Tonemapping    .pNext = &modified_Illumination;
         modified_Textures       .pNext = &modified_Tonemapping;
-        modified                .pNext = &modified_Textures;
+        modified_NRC            .pNext = &modified_Textures;
+        modified                .pNext = &modified_NRC;
         // clang-format on
 
         Dev_Override( modified_Illumination, modified_Tonemapping, modified_Textures );
+        Dev_Override( modified_NRC );
 
         drawFrame_WithScene( modified );
     };
