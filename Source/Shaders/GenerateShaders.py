@@ -293,6 +293,11 @@ def main():
     else:
         print(msg)
 
+    # Exit non-zero on failed compiles so build systems (CMake/MSBuild)
+    # treat shader errors as build errors instead of silently passing.
+    if msgErrorCount > 0:
+        sys.exit(1)
+
 
 # main
 if __name__ == "__main__":
