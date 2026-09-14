@@ -20,6 +20,7 @@
 
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_samplerless_texture_functions : require
+#extension GL_EXT_scalar_block_layout : require
 
 #include "Utils.h"
 #include "ShaderCommonGLSL.h"
@@ -53,7 +54,8 @@
 #ifdef DESC_SET_GLOBAL_UNIFORM
 layout(
     set = DESC_SET_GLOBAL_UNIFORM,
-    binding = BINDING_GLOBAL_UNIFORM)
+    binding = BINDING_GLOBAL_UNIFORM,
+    scalar)
     readonly uniform GlobalUniform_BT
 {
     ShGlobalUniform globalUniform;
