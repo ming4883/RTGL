@@ -404,6 +404,9 @@ namespace detail
             .emissionMaxScreenColor = 1.5f,
             .minRoughness           = 0.0f,
             .heightMapDepth         = 0.02f,
+            .clampDirect            = 500.0f,
+            .clampIndirect          = 500.0f,
+            .clampSpecular          = 500.0f,
         };
     };
 

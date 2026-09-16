@@ -474,10 +474,21 @@ void main()
 
 
 
-    const vec3 indirRadiance =
+    // not const: may be clamped by the firefly suppression below
+    vec3 indirRadiance =
         shade( surf, combined.selected, calcSelectedSampleWeightIndirect( combined ) );
 
     const vec3 surfToHitPoint = unpackSampleIndirectPosition( combined.selected ) - surf.position;
+    // Q2RTX-style firefly suppression at the shading point. This is the main
+    // defence against emissive-driven fireflies: with emissionMapBoost applied,
+    // indirect samples that hit a glowing wall can carry enormous radiance, and a
+    // whole neighbourhood can be contaminated at once -- in that case the spatial
+    // anti-firefly filter (which clamps to neighbour min/max) has nothing clean to
+    // clamp against, so the outlier must be removed here instead.
+    if( globalUniform.clampIndirect > 0.0 )
+    {
+        indirRadiance = clampOutputRadiance( indirRadiance, globalUniform.clampIndirect );
+    }
 
     {
         const vec3 direct = texelFetchUnfilteredSpecular( pix );

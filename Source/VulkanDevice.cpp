@@ -397,6 +397,12 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
         gu->emissionMaxScreenColor = std::max( params.emissionMaxScreenColor, 0.0f );
         gu->minRoughness           = std::clamp( params.minRoughness, 0.0f, 1.0f );
         gu->parallaxMaxDepth       = std::max( params.heightMapDepth, 0.0f );
+
+        // Firefly suppression at the shading point (from Quake 2 RTX).
+        // <= 0 disables clamping for that channel.
+        gu->clampDirect   = std::max( params.clampDirect,   0.0f );
+        gu->clampIndirect = std::max( params.clampIndirect, 0.0f );
+        gu->clampSpecular = std::max( params.clampSpecular, 0.0f );
     }
 
     {

@@ -48,6 +48,21 @@
 #define FAKE_ROUGH_SPECULAR_LENGTH 0.25
 
 #define SHIPPING_HACK 1
+// Ported from Quake 2 RTX (path_tracer_rgen.h: clamp_output / MAX_OUTPUT_VALUE).
+// Kills fireflies at the source: a NaN/Inf sample becomes black, and any radiance
+// above maxValue is clamped. Doing this at the shading point (rather than relying
+// only on the spatial anti-firefly filter) matters when a whole neighbourhood is
+// contaminated -- e.g. when a strongly boosted emissive wall lights the entire 5x5
+// window, min/max clamping against neighbours has nothing clean to clamp to.
+vec3 clampOutputRadiance( vec3 c, float maxValue )
+{
+    if( any( isnan( c ) ) || any( isinf( c ) ) )
+    {
+        return vec3( 0 );
+    }
+
+    return clamp( c, vec3( 0 ), vec3( maxValue ) );
+}
 
 
 

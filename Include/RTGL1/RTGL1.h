@@ -922,6 +922,13 @@ typedef struct RgDrawFrameTexturesParams
     // The deepest point that the 0.0 value of height map defines.
     // Default 0.02
     float           heightMapDepth;
+
+    // Upper bound for direct/indirect/specular radiance at the shading point,
+    // ported from Quake 2 RTX's clamp_output. 0 means disabled.
+    // Default: 1000.0 (direct / indirect), 1000.0 (specular)
+    float           clampDirect;
+    float           clampIndirect;
+    float           clampSpecular;
 } RgDrawFrameTexturesParams;
 
 // Can be linked after RgDrawFrameInfo.

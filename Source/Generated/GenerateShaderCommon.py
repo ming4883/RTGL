@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2020-2021 Sultim Tsyrendashiev
+# Copyright (c) 2020-2021 Sultim Tsyrendashiev
 # 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -611,6 +611,10 @@ GLOBAL_UNIFORM_STRUCT = [
     (TYPE_FLOAT32,      1,      "volumeCameraNear",                 1),
     (TYPE_FLOAT32,      1,      "volumeCameraFar",                  1),
     (TYPE_UINT32,       1,      "antiFireflyEnabled",               1),
+
+    (TYPE_FLOAT32,      1,      "clampDirect",                     1),
+    (TYPE_FLOAT32,      1,      "clampIndirect",                   1),
+    (TYPE_FLOAT32,      1,      "clampSpecular",                   1),
 
     (TYPE_FLOAT32,      4,      "volumeAmbient",                    1),
     (TYPE_FLOAT32,      4,      "volumeUnderwaterColor",            1),

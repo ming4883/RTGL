@@ -289,6 +289,9 @@ struct ShGlobalUniform
     float volumeCameraNear;
     float volumeCameraFar;
     uint32_t antiFireflyEnabled;
+    float clampDirect;
+    float clampIndirect;
+    float clampSpecular;
     float volumeAmbient[4];
     float volumeUnderwaterColor[4];
     float volumeFallbackSrcColor[4];

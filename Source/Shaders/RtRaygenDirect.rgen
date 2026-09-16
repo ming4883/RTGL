@@ -60,6 +60,18 @@ void main()
         diffuse, specular);
 
     // demodulate for denoising
+    // Q2RTX-style firefly suppression: clamp radiance (and kill NaN/Inf) at the
+    // shading point, before demodulation and before the spatial anti-firefly filter.
+    // A value <= 0 disables clamping for that channel.
+    if( globalUniform.clampDirect > 0.0 )
+    {
+        diffuse = clampOutputRadiance( diffuse, globalUniform.clampDirect );
+    }
+    if( globalUniform.clampSpecular > 0.0 )
+    {
+        specular = clampOutputRadiance( specular, globalUniform.clampSpecular );
+    }
+
     imageStoreUnfilteredDirect(pix, diffuse);
     imageStoreUnfilteredSpecular(pix, demodulateSpecular(specular, surf.specularColor));
     imageStore(framebufViewDirection, pix, vec4(-surf.toViewerDir, distToLight));

@@ -284,6 +284,9 @@ struct ShGlobalUniform
     float volumeCameraNear;
     float volumeCameraFar;
     uint antiFireflyEnabled;
+    float clampDirect;
+    float clampIndirect;
+    float clampSpecular;
     vec4 volumeAmbient;
     vec4 volumeUnderwaterColor;
     vec4 volumeFallbackSrcColor;
