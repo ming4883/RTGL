@@ -653,7 +653,15 @@ void traceDirectIllumination( const Surface   surf,
     #endif
                               )
 {    
-    const LightSample light = sampleLight(lightSources[reservoir.selected], surf.position, pointRnd);
+    LightSample light = sampleLight(lightSources[reservoir.selected], surf.position, pointRnd);
+
+    // Q2RTX-style firefly suppression for indirect bounces: shrink the effective
+    // solid angle of bright lights on bounces >= 1. See Light.h.
+    // Note: this is applied at shading time only, so the ReSTIR target pdf used for
+    // selection still uses the unclamped solid angle. That mismatch is deliberate --
+    // it biases the estimator slightly towards dimmer, in exchange for removing the
+    // high-variance tail (same tradeoff Q2RTX makes).
+    light.dw = applyIndirectSolidAngleLimit( light.dw, bounceIndex );
     shade(surf, light, calcSelectedSampleWeight(reservoir), out_diffuse, out_specular);
     
     if (getLuminance(out_diffuse + out_specular) <= 0.0)

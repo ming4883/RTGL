@@ -407,6 +407,9 @@ namespace detail
             .clampDirect            = 500.0f,
             .clampIndirect          = 500.0f,
             .clampSpecular          = 500.0f,
+            .indirectMaxSolidAngle = 0.02f,
+            .taaVarianceGamma      = 3.0f,
+            .taaAntiSparkle        = 0.25f,
         };
     };
 

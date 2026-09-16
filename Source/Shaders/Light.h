@@ -229,6 +229,24 @@ float getSpotLightWeight(const SpotLight l, const vec3 cellCenter, float cellRad
 
 
 
+
+// Ported from Quake 2 RTX (path_tracer_rgen.h: "Limit the solid angle of sphere
+// lights for indirect lighting in order to kill some fireflies in locations with
+// many sphere lights").
+// On bounces >= 1 we are already integrating over many paths. A tiny but blindingly
+// bright light contributes enormous variance while carrying little average energy,
+// so shrinking its effective solid angle trades a small amount of bias for a large
+// variance reduction. bounceIndex <= 0 keeps the full solid angle (2*PI) so that
+// first-bounce / camera-visible lighting stays unbiased.
+float applyIndirectSolidAngleLimit( float dw, int bounceIndex )
+{
+    if( globalUniform.indirectMaxSolidAngle <= 0.0 || bounceIndex <= 0 )
+    {
+        return dw;
+    }
+
+    return min( dw, globalUniform.indirectMaxSolidAngle );
+}
 struct LightSample
 {
     vec3 position;

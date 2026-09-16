@@ -403,6 +403,9 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
         gu->clampDirect   = std::max( params.clampDirect,   0.0f );
         gu->clampIndirect = std::max( params.clampIndirect, 0.0f );
         gu->clampSpecular = std::max( params.clampSpecular, 0.0f );
+        gu->indirectMaxSolidAngle = std::max( params.indirectMaxSolidAngle, 0.0f );
+        gu->taaVarianceGamma      = std::max( params.taaVarianceGamma,      0.0f );
+        gu->taaAntiSparkle       = std::max( params.taaAntiSparkle,       0.0f );
     }
 
     {

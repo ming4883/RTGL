@@ -929,6 +929,18 @@ typedef struct RgDrawFrameTexturesParams
     float           clampDirect;
     float           clampIndirect;
     float           clampSpecular;
+
+    // Max solid angle (steradians) of a light when sampled for indirect bounces,
+    // ported from Quake 2 RTX. 0 = disabled. Default 0.02.
+    float           indirectMaxSolidAngle;
+    // Strength of variance-based neighbourhood colour clamping in temporal
+    // accumulation, ported from Quake 2 RTX. 0 = disabled. Default 3.0.
+    float           taaVarianceGamma;
+
+    // One-way anti-sparkle clamp strength in temporal accumulation, ported from
+    // Quake 2 RTX. Only ever pulls over-bright samples DOWN. 0 = disabled.
+    // Default 0.25.
+    float           taaAntiSparkle;
 } RgDrawFrameTexturesParams;
 
 // Can be linked after RgDrawFrameInfo.

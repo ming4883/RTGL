@@ -93,6 +93,43 @@ float getSpecularDominantFactor(float nv, float roughness)
     return clamp(f, 0.0, 1.0);
 }
 
+
+// Ported from Quake 2 RTX (asvgf_taau.comp: get_moments + neighbourhood colour
+// clamping). Accumulates 1st and 2nd moments of the *unfiltered* (current frame)
+// diffuse colour over a 3x3 window, so we can derive a mean and a standard
+// deviation. The temporal history is then clamped into [mean - g*sigma, mean + g*sigma]
+// instead of into the raw neighbour min/max.
+//
+// This is strictly better than a symmetric min/max clamp for two reasons:
+//   1. min/max is driven by the single most extreme neighbour, so one surviving
+//      firefly widens the box for every pixel that touches it.
+//   2. sigma scales with actual local variance, so genuinely high-contrast
+//      regions keep their contrast while flat noisy regions get tight bounds.
+void getNeighbourColourMoments( const ivec2 pix, out vec3 mom1, out vec3 mom2 )
+{
+    mom1 = vec3( 0.0 );
+    mom2 = vec3( 0.0 );
+
+    for( int yy = -1; yy <= 1; yy++ )
+    {
+        for( int xx = -1; xx <= 1; xx++ )
+        {
+            if( xx == 0 && yy == 0 )
+            {
+                continue;
+            }
+
+            const vec3 c = texelFetchUnfilteredDirect( pix + ivec2( xx, yy ) ).rgb;
+
+            mom1 += c;
+            mom2 += c * c;
+        }
+    }
+
+    const float invCount = 1.0 / 8.0;
+    mom1 *= invCount;
+    mom2 *= invCount;
+}
 void main()
 {
     const ivec2 pix = ivec2(gl_GlobalInvocationID);
@@ -341,7 +378,51 @@ void main()
             alphaColor   = mix(alphaColor,   1.0, antilagAlpha_Diff);
             alphaMoments = mix(alphaMoments, 1.0, antilagAlpha_Diff);
 
-            diffColorAccum   = mix(diffPrev, unfilteredDiff, alphaColor);
+            // --- Q2RTX-style temporal firefly suppression -----------------
+            // One-way anti-sparkle: only ever pull an over-bright NEW sample
+            // DOWN towards the neighbour mean. Asymmetric on purpose -- clamping
+            // downwards cannot crush genuinely bright highlights, it only trims
+            // the single-frame outliers that are the actual fireflies.
+            vec3 diffNew = unfilteredDiff;
+
+            // fetched once, reused by both clamps below
+            vec3 nbMom1 = vec3( 0.0 ), nbMom2 = vec3( 0.0 );
+            if( globalUniform.taaAntiSparkle > 0.0 || globalUniform.taaVarianceGamma > 0.0 )
+            {
+                getNeighbourColourMoments( pix, nbMom1, nbMom2 );
+            }
+
+            if( globalUniform.taaAntiSparkle > 0.0 )
+            {
+                // Q2RTX's custom curve, so perceived blurriness tracks the cvar
+                // roughly linearly rather than exploding near 0.
+                const float scale = pow( min( globalUniform.taaAntiSparkle, 1.0 ), -0.25 );
+
+                diffNew = min( diffNew, scale * nbMom1 );
+            }
+
+            // Neighbourhood colour clamping (NCC) on the HISTORY: clamp the
+            // reprojected previous colour into a sigma window around the current
+            // neighbourhood. This stops a stale bright sample from being carried
+            // forward frame after frame, which is what makes fireflies persist
+            // even when the new samples are clean.
+            vec3 diffHist = diffPrev;
+
+            if( globalUniform.taaVarianceGamma > 0.0 )
+            {
+                // fold the (already de-sparkled) centre sample into the window,
+                // matching Q2RTX which adds color_center before averaging
+                vec3 m1 = nbMom1 * ( 8.0 / 9.0 ) + diffNew * ( 1.0 / 9.0 );
+                vec3 m2 = nbMom2 * ( 8.0 / 9.0 ) + diffNew * diffNew * ( 1.0 / 9.0 );
+
+                const vec3 sigma = sqrt( max( vec3( 0.0 ), m2 - m1 * m1 ) );
+                const vec3 mi    = m1 - sigma * globalUniform.taaVarianceGamma;
+                const vec3 ma    = m1 + sigma * globalUniform.taaVarianceGamma;
+
+                diffHist = clamp( diffHist, mi, ma );
+            }
+
+            diffColorAccum   = mix(diffHist, diffNew, alphaColor);
             diffMomentsAccum = mix(momentsPrev, moments, alphaMoments);
             diffHistoryLengthAccum = diffHistoryLength;
         }

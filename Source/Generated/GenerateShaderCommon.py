@@ -615,6 +615,9 @@ GLOBAL_UNIFORM_STRUCT = [
     (TYPE_FLOAT32,      1,      "clampDirect",                     1),
     (TYPE_FLOAT32,      1,      "clampIndirect",                   1),
     (TYPE_FLOAT32,      1,      "clampSpecular",                   1),
+    (TYPE_FLOAT32,      1,      "indirectMaxSolidAngle",          1),
+    (TYPE_FLOAT32,      1,      "taaVarianceGamma",                1),
+    (TYPE_FLOAT32,      1,      "taaAntiSparkle",                  1),
 
     (TYPE_FLOAT32,      4,      "volumeAmbient",                    1),
     (TYPE_FLOAT32,      4,      "volumeUnderwaterColor",            1),

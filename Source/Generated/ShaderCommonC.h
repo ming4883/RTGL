@@ -292,6 +292,9 @@ struct ShGlobalUniform
     float clampDirect;
     float clampIndirect;
     float clampSpecular;
+    float indirectMaxSolidAngle;
+    float taaVarianceGamma;
+    float taaAntiSparkle;
     float volumeAmbient[4];
     float volumeUnderwaterColor[4];
     float volumeFallbackSrcColor[4];
