@@ -104,7 +104,9 @@ void storeSky( const ivec2 pix,
 
         {
             // to hdr
-            skyColor = adjustSky( skyColor ) / M_PI;
+            skyColor = adjustSky( skyColor,
+                              globalUniform.skyColorMultiplier,
+                              globalUniform.skyColorSaturation ) / M_PI;
         }
 
         imageStore(

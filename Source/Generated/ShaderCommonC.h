@@ -234,6 +234,7 @@ struct ShGlobalUniform
     float polyLightSpotlightFactor;
     uint32_t skyType;
     float skyColorMultiplier;
+    float skyLightMultiplier;
     uint32_t skyCubemapIndex;
     float skyColorDefault[4];
     float cameraPosition[4];
@@ -246,6 +247,7 @@ struct ShGlobalUniform
     float emissionMaxScreenColor;
     float normalMapStrength;
     float skyColorSaturation;
+    float skyLightSaturation;
     uint32_t maxBounceShadowsLights;
     float rayLength;
     uint32_t rayCullBackFaces;

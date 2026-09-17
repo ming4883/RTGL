@@ -344,8 +344,10 @@ void RTGL1::VulkanDevice::FillUniform( RTGL1::ShGlobalUniform* gu,
 
 
         RG_SET_VEC3_A( gu->skyColorDefault, params.skyColorDefault.data );
-        gu->skyColorMultiplier = std::max( 0.0f, params.skyColorMultiplier );
+        gu->skyColorMultiplier = std::max( 0.0f, params.skyColorMultiplier * params.skyColorScale );
         gu->skyColorSaturation = std::max( 0.0f, params.skyColorSaturation );
+        gu->skyLightMultiplier = std::max( 0.0f, params.skyLightMultiplier * params.skyLightScale );
+        gu->skyLightSaturation = std::max( 0.0f, params.skyLightSaturation );
 
         switch( params.skyType )
         {

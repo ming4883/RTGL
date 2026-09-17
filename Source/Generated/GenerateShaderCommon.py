@@ -540,6 +540,7 @@ GLOBAL_UNIFORM_STRUCT = [
     (TYPE_FLOAT32,      1,      "polyLightSpotlightFactor",     1),
     (TYPE_UINT32,       1,      "skyType",                      1),
     (TYPE_FLOAT32,      1,      "skyColorMultiplier",           1),
+    (TYPE_FLOAT32,      1,      "skyLightMultiplier",           1),
     (TYPE_UINT32,       1,      "skyCubemapIndex",              1),
     
     (TYPE_FLOAT32,      4,      "skyColorDefault",              1),
@@ -556,6 +557,7 @@ GLOBAL_UNIFORM_STRUCT = [
     (TYPE_FLOAT32,      1,      "emissionMaxScreenColor",       1),
     (TYPE_FLOAT32,      1,      "normalMapStrength",            1),
     (TYPE_FLOAT32,      1,      "skyColorSaturation",           1),
+    (TYPE_FLOAT32,      1,      "skyLightSaturation",           1),
 
     (TYPE_UINT32,       1,      "maxBounceShadowsLights",           1),
     (TYPE_FLOAT32,      1,      "rayLength",                        1),

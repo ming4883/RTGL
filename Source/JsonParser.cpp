@@ -197,6 +197,7 @@ auto RTGL1::json_parser::detail::ReadTextureMetaArray( const std::filesystem::pa
 JSON_TYPE( RTGL1::SceneMeta )
       "sceneName", &T::sceneName
     , "sky", &T::sky
+    , "skyLight", &T::skyLight
     , "forceSkyPlainColor", &T::forceSkyPlainColor
     , "scatter", &T::scatter
     , "volumeFar", &T::volumeFar

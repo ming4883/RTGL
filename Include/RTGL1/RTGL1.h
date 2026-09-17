@@ -894,6 +894,13 @@ typedef struct RgDrawFrameSkyParams
     // The result sky color is multiplied by this value.
     float           skyColorMultiplier;
     float           skyColorSaturation;
+    // Sky as a light source (indirect bounces / ambient fill). Decoupled from
+    // the visible sky above, so backdrop brightness and lighting can differ.
+    float           skyLightMultiplier;
+    float           skyLightSaturation;
+    // Live runtime scalars, applied after any per-map scenes.json override.
+    float           skyColorScale;
+    float           skyLightScale;
     // A point from which rays are traced while using RG_SKY_TYPE_RASTERIZED_GEOMETRY.
     RgFloat3D       skyViewerPosition;
     // If sky type is RG_SKY_TYPE_CUBEMAP, this cubemap is used.

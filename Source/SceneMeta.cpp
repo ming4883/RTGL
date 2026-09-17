@@ -50,6 +50,14 @@ void RTGL1::SceneMetaManager::Modify( std::string_view             sceneName,
     if( m.sky )
     {
         sky.skyColorMultiplier = *m.sky;
+
+        // inherit: a map without an explicit skyLight keeps today's behaviour
+        sky.skyLightMultiplier = m.skyLight.value_or( *m.sky );
+    }
+
+    if( m.skyLight )
+    {
+        sky.skyLightMultiplier = *m.skyLight;
     }
 
     if( m.forceSkyPlainColor )

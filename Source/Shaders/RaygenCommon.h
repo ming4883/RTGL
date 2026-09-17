@@ -277,10 +277,9 @@ vec3 adjustSaturation( vec3 c, float saturation )
     return mix( vec3( grey ), c, saturation );
 }
 
-vec3 adjustSky( vec3 skyRaw )
+vec3 adjustSky( vec3 skyRaw, float mult, float sat )
 {
-    return adjustSaturation( skyRaw, globalUniform.skyColorSaturation ) *
-           globalUniform.skyColorMultiplier;
+    return adjustSaturation( skyRaw, sat ) * mult;
 }
 
 vec3 getSkyAlbedo( vec3 direction )
@@ -308,7 +307,9 @@ vec3 getSkyAlbedo( vec3 direction )
 
 vec3 getSky( vec3 direction )
 {
-    return adjustSky( getSkyAlbedo( direction ) );
+    return adjustSky( getSkyAlbedo( direction ),
+                      globalUniform.skyLightMultiplier,
+                      globalUniform.skyLightSaturation );
 }
 #endif
 

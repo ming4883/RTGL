@@ -93,6 +93,7 @@ struct SceneMeta
     std::string sceneName = {};
 
     std::optional< float > sky;
+    std::optional< float > skyLight;
     std::optional< std::array< float, 3 > > forceSkyPlainColor;
 
     std::optional< float > scatter;
