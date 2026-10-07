@@ -144,6 +144,28 @@ layout( set = NRC_SET, binding = NRC_BINDING_PARAMS, scalar ) uniform NRCParamsU
 
 #define OPTIMIZE_MEM 1
 
+
+//------------------------------------------------------------------------------
+// Adaptive temporal confidence cap ("duplication maps"), Lin et al. 2026, Sec.5.
+//
+// Highly correlated neighbourhoods (fireflies spread by reuse) are detected by
+// counting, in a 17x17 window, how many reservoirs hold shifted copies of the
+// same initial candidate -- i.e. share its sampleId. The count / 288 gives a
+// duplication score D, which shrinks the temporal confidence cap:
+//      cCap = mix( cCapDefault, cCapMin, pow( D, alpha ) )
+// Note this deliberately violates the partition of unity of MIS weights, trading
+// a small bias for decorrelation; the paper measures 3.25% mean abs rel bias.
+//------------------------------------------------------------------------------
+#define ADAPTIVE_M_CAP_ENABLED 1
+
+#define INDIR_DUP_RADIUS          8
+#define INDIR_DUP_WINDOW          17                          // 2 * INDIR_DUP_RADIUS + 1
+#define INDIR_DUP_NEIGHBOR_COUNT  ( INDIR_DUP_WINDOW * INDIR_DUP_WINDOW - 1 )   // 288, as in the paper
+
+#define INDIR_C_CAP_DEFAULT       20.0
+#define INDIR_C_CAP_MIN           1.0
+#define INDIR_C_CAP_ALPHA         0.1
+
 bool useDiffuse( const float roughness )
 {
     return roughness >= FAKE_ROUGH_SPECULAR_THRESHOLD;
@@ -534,6 +556,64 @@ void main()
 
 
 #ifdef RT_RAYGEN_INDIRECT_FINAL
+
+// sampleId tile for the 17x17 duplication window. The FINAL pass only exists as
+// a compute shader (RT_FORCE_COMPUTE), so workgroup storage is available here.
+#define INDIR_DUP_TILE_WIDTH ( INDIR_DUP_RADIUS + COMPUTE_INDIRECT_FINAL_GROUP_SIZE_X + INDIR_DUP_RADIUS )
+
+shared uint g_indirSampleIdTile[ INDIR_DUP_TILE_WIDTH * INDIR_DUP_TILE_WIDTH ];
+
+void preloadSampleIdTile()
+{
+    const ivec2 base        = ivec2( gl_WorkGroupID.xy ) * ivec2( COMPUTE_INDIRECT_FINAL_GROUP_SIZE_X, COMPUTE_INDIRECT_FINAL_GROUP_SIZE_Y ) - ivec2( INDIR_DUP_RADIUS );
+    const int   threadIndex = int( gl_LocalInvocationIndex );
+    const int   sharedCount = INDIR_DUP_TILE_WIDTH * INDIR_DUP_TILE_WIDTH;
+    const int   threadCount = COMPUTE_INDIRECT_FINAL_GROUP_SIZE_X * COMPUTE_INDIRECT_FINAL_GROUP_SIZE_Y;
+
+    for( int i = threadIndex; i < sharedCount; i += threadCount )
+    {
+        const ivec2 sp = ivec2( i % INDIR_DUP_TILE_WIDTH, i / INDIR_DUP_TILE_WIDTH );
+        g_indirSampleIdTile[ i ] = restirIndirect_LoadSampleId_Prev( base + sp );
+    }
+}
+
+// Fraction of the 17x17 neighbourhood around `pix` that shares `sampleId`.
+// Returns 0 when `pix` falls outside this workgroup's loaded tile.
+float getIndirDuplicationScore( const ivec2 pix, const uint sampleId )
+{
+    const ivec2 base  = ivec2( gl_WorkGroupID.xy ) * ivec2( COMPUTE_INDIRECT_FINAL_GROUP_SIZE_X, COMPUTE_INDIRECT_FINAL_GROUP_SIZE_Y ) - ivec2( INDIR_DUP_RADIUS );
+    const ivec2 local = pix - base;
+
+    if( local.x < INDIR_DUP_RADIUS || local.y < INDIR_DUP_RADIUS ||
+        local.x >= INDIR_DUP_RADIUS + COMPUTE_INDIRECT_FINAL_GROUP_SIZE_X ||
+        local.y >= INDIR_DUP_RADIUS + COMPUTE_INDIRECT_FINAL_GROUP_SIZE_Y )
+    {
+        return 0.0;
+    }
+
+    int hits = 0;
+
+    for( int dy = -INDIR_DUP_RADIUS; dy <= INDIR_DUP_RADIUS; dy++ )
+    {
+        for( int dx = -INDIR_DUP_RADIUS; dx <= INDIR_DUP_RADIUS; dx++ )
+        {
+            if( dx == 0 && dy == 0 )
+            {
+                continue;
+            }
+
+            const uint other = g_indirSampleIdTile[ ( local.y + dy ) * INDIR_DUP_TILE_WIDTH + ( local.x + dx ) ];
+
+            if( other == sampleId )
+            {
+                hits++;
+            }
+        }
+    }
+
+    return clamp( float( hits ) / float( INDIR_DUP_NEIGHBOR_COUNT ), 0.0, 1.0 );
+}
+
 ReservoirIndirect loadInitialSampleAsReservoir( const ivec2 pix )
 {
     float          oneOverSourcePdf;
@@ -541,7 +621,8 @@ ReservoirIndirect loadInitialSampleAsReservoir( const ivec2 pix )
     float          targetPdf = targetPdfForIndirectSample( s );
 
     ReservoirIndirect r = emptyReservoirIndirect();
-    updateReservoirIndirect( r, s, targetPdf, oneOverSourcePdf, 0.5 );
+    updateReservoirIndirect( r, s, targetPdf, oneOverSourcePdf, 0.5,
+                             indirectSampleId( pix, globalUniform.frameId ) );
     return r;
 }
 
@@ -559,6 +640,10 @@ void main()
 #ifndef RT_FORCE_COMPUTE
     surf.position += surf.toViewerDir * RAY_ORIGIN_LEAK_BIAS;
 #endif
+
+    // must run before any early return: barrier() needs uniform control flow
+    preloadSampleIdTile();
+    barrier();
 
     if( surf.isSky )
     {
@@ -618,8 +703,22 @@ void main()
         }
 
         ReservoirIndirect temporal = restirIndirect_LoadReservoir_Prev( pp );
+
+        uint temporalCap = uint( INDIR_C_CAP_DEFAULT );
+
+#if ADAPTIVE_M_CAP_ENABLED
+        {
+            const float D = getIndirDuplicationScore( pp, temporal.sampleId );
+            const float cCap = mix( INDIR_C_CAP_DEFAULT,
+                                    INDIR_C_CAP_MIN,
+                                    pow( D, INDIR_C_CAP_ALPHA ) );
+
+            temporalCap = uint( max( cCap, 1.0 ) );
+        }
+#endif
+
         // renormalize to prevent precision problems
-        normalizeReservoirIndirect( temporal, 20 );
+        normalizeReservoirIndirect( temporal, temporalCap );
 
         float rnd = rnd16( seed, salt++ );
         updateCombinedReservoirIndirect( combined, temporal, rnd );

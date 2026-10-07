@@ -436,7 +436,7 @@ CONST = {
     "PORTAL_INDEX_NONE"                     : 63,
     "PORTAL_MAX_COUNT"                      : 63,
 
-    "PACKED_INDIRECT_RESERVOIR_SIZE_IN_WORDS" : 5,
+    "PACKED_INDIRECT_RESERVOIR_SIZE_IN_WORDS" : 6,
 
     "VOLUMETRIC_SIZE_X"                     : 160,
     "VOLUMETRIC_SIZE_Y"                     : 88,
