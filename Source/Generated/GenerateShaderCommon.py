@@ -220,6 +220,13 @@ CONST_TO_EVALUATE = "CONST VALUE MUST BE EVALUATED"
 # --------------------------------------------------------------------------------------------- #
 
 GRADIENT_ESTIMATION_ENABLED = True
+
+# Reject temporal history for pixels that were covered by first-person
+# (viewmodel) geometry on the previous frame. Fixes de-occlusion ghosting
+# along the weapon silhouette: the viewmodel is rebuilt each frame in world
+# space and carries no valid motion vectors, so reprojection silently accepts
+# stale history instead of flagging a disocclusion.
+FIRST_PERSON_HISTORY_REJECTION_ENABLED = True
 FRAMEBUF_IGNORE_ATTACHMENTS_DEFINE = "FRAMEBUF_IGNORE_ATTACHMENTS" # define this, to not specify framebufs that are used as attachments
 def BIT( i ):
     return "1 << " + str( i )
@@ -374,6 +381,7 @@ CONST = {
     "VERT_PREPROC_MODE_ALL"                 : 2,
 
     "GRADIENT_ESTIMATION_ENABLED"           : int(GRADIENT_ESTIMATION_ENABLED),
+    "FIRST_PERSON_HISTORY_REJECTION_ENABLED": int(FIRST_PERSON_HISTORY_REJECTION_ENABLED),
     "COMPUTE_GRADIENT_ATROUS_GROUP_SIZE_X"  : 16,
     "COMPUTE_ANTIFIREFLY_GROUP_SIZE_X"      : 16,
     "COMPUTE_SVGF_TEMPORAL_GROUP_SIZE_X"    : 16,
@@ -1311,11 +1319,11 @@ def main():
 
     evalConst()
     # with open('ShaderConfig.csv', newline='') as csvfile:
-    with open(basePath + "ShaderCommonC.h", "w") as commonHeaderFile:
-        with open(basePath + "ShaderCommonCFramebuf.h", "w") as fbHeaderFile:
-            with open(basePath + "ShaderCommonCFramebuf.cpp", "w") as fbSourceFile:
+    with open(basePath + "ShaderCommonC.h", "w", newline="\n") as commonHeaderFile:
+        with open(basePath + "ShaderCommonCFramebuf.h", "w", newline="\n") as fbHeaderFile:
+            with open(basePath + "ShaderCommonCFramebuf.cpp", "w", newline="\n") as fbSourceFile:
                 writeToC(commonHeaderFile, fbHeaderFile, fbSourceFile)
-    with open(basePath + "ShaderCommonGLSL.h", "w") as f:
+    with open(basePath + "ShaderCommonGLSL.h", "w", newline="\n") as f:
         writeToGLSL(f)
 
 # main

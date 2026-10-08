@@ -177,6 +177,11 @@ void main()
     vec3 indirPrev = vec3(0.0);
     float weightSum = 0.0;
 
+#if FIRST_PERSON_HISTORY_REJECTION_ENABLED
+    // Hoisted out of the 2x2 loop: does not depend on the tap.
+    const bool isFirstPersonCur = isFirstPersonPix( pix );
+#endif
+
     // 2x2 tap bilinear interpolation
     for (int yy = 0; yy <= 1; yy++)
     {
@@ -192,6 +197,27 @@ void main()
                     testPixInRenderArea(xy, chRenderArea) &&
                     testReprojectedDepth(depth, depthPrev, motionZ) &&
                     testReprojectedNormal(normal, normalPrev);
+
+#if FIRST_PERSON_HISTORY_REJECTION_ENABLED
+                // Reject ONLY when the first-person CATEGORY CHANGED between
+                // the two frames -- i.e. across the viewmodel silhouette:
+                //     wall   <- weapon : this texel was covered by the viewmodel
+                //     weapon <- wall   : the viewmodel just covered it
+                // Depth and normal cannot separate these: the viewmodel quad
+                // sits at a fixed camera-relative depth facing the camera, so
+                // it passes those tests against almost anything behind it.
+                // Asking the hard question "was this texel first-person?"
+                // costs one texelFetch and needs no reprojection, no RNG reuse.
+                //
+                // This MUST stay symmetric. Rejecting merely "prev was
+                // first-person" also wipes every viewmodel pixel's OWN
+                // history. With no valid motion vectors the weapon is exactly
+                // the surface that most needs its accumulation, and resetting
+                // to historyLength = 1 forces alpha = 1.0 -- a raw unfiltered
+                // sample each frame. That reads as flicker, not as less smear.
+                isConsistent = isConsistent &&
+                    ( isFirstPersonCur == isFirstPersonPix_Prev( xy ) );
+#endif
 
                 if (isConsistent)
                 {

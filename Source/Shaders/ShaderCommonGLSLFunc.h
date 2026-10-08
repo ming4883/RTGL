@@ -430,6 +430,22 @@ bool isSkyPix(const ivec2 pix)
     return texelFetch(framebufIsSky_Sampler, pix, 0).r != 0;
 }
 
+// framebufSurfacePosition.w holds the raw instCustomIndex bits (stored via
+// uintBitsToFloat), so the first-person flags are recoverable for free --
+// no dedicated framebuffer needed. SurfacePosition also carries
+// FRAMEBUF_FLAGS_STORE_PREV, hence a _Prev variant exists.
+bool isFirstPersonPix( const ivec2 pix )
+{
+    const uint ci = floatBitsToUint( texelFetch( framebufSurfacePosition_Sampler, pix, 0 ).w );
+    return ( ci & INSTANCE_CUSTOM_INDEX_FLAG_FIRST_PERSON ) != 0;
+}
+
+bool isFirstPersonPix_Prev( const ivec2 pix )
+{
+    const uint ci = floatBitsToUint( texelFetch( framebufSurfacePosition_Prev_Sampler, pix, 0 ).w );
+    return ( ci & INSTANCE_CUSTOM_INDEX_FLAG_FIRST_PERSON ) != 0;
+}
+
 // t == 0
 bool wasOnlyPrimary( float t )
 {
