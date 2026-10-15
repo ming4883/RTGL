@@ -184,7 +184,15 @@ float calcSolidAngleForArea(float area, const vec3 areaPosition, const vec3 area
 
 float getLightColorWeight(const vec3 color)
 {
-    return clamp(getLuminance(color) * 0.1 + 0.9, 1.0, 10.0);
+    // Firefly fix: getLuminance() collapses a strong single channel into a small
+    // scalar, so saturated lights (deep red flames, boosted emissive surfaces)
+    // were assigned a sampling weight far below their actual per-channel
+    // contribution. Rare samples then land with an enormous value, which is
+    // exactly an isolated bright pixel. Weight by the dominant channel instead,
+    // since that bounds the largest possible per-channel contribution.
+    const float dominantChannel = max( color.r, max( color.g, color.b ) );
+
+    return clamp( dominantChannel * 0.1 + 0.9, 1.0, 10.0 );
 }
 
 float getDirectionalLightWeight(const DirectionalLight l, const vec3 cellCenter, float cellRadius)

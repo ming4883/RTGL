@@ -47,5 +47,18 @@ void main()
     }
 
     Reservoir normalizedInitial = calcInitialReservoir(seed, RANDOM_SALT_INITIAL_RESERVOIRS_BASE, surf, getLightPointRnd(seed));
+
+    // Firefly fix: initial reservoirs are stored unclamped and then fed into
+    // spatial/temporal reuse, so one over-bright sample can be propagated to
+    // many pixels. Cap the selected sample weight here (the same value that
+    // scales the final radiance) so a saturated light cannot seed reuse with
+    // an enormous contribution.
+    if( globalUniform.clampDirect > 0.0 )
+    {
+        normalizedInitial.weightSum = min(
+            normalizedInitial.weightSum,
+            globalUniform.clampDirect * normalizedInitial.selected_targetPdf );
+    }
+
     imageStoreReservoirInitial(normalizedInitial, pix);
 }

@@ -142,6 +142,7 @@ void main()
         radiance += processDirectIllumination( seed, s, 0, tolight ) * 4 * M_PI;
         radiance = mix( radiance_Prev, radiance, 0.05 );
 
+
         lighting += globalUniform.volumeLightMult * radiance *
                     phaseFunction_Schlick( tolight, toviewer, globalUniform.volumeAsymmetry );
     }
@@ -150,6 +151,15 @@ void main()
     {
         vec3 lightdir;
         radiance += traceDirectIllumination_SpecificLight( center, lightdir );
+
+        // Firefly fix: this is the ACTIVE volumetric path (ILLUMINATION_VOLUME
+        // is 0). It had no radiance clamp at all, unlike direct/indirect which
+        // clamp at the shading point, so one saturated light sample becomes a
+        // bright fog cell.
+        if( globalUniform.clampDirect > 0.0 )
+        {
+            radiance = clampOutputRadiance( radiance, globalUniform.clampDirect );
+        }
 
         lighting += globalUniform.volumeLightMult * radiance *
                     phaseFunction_Schlick( -lightdir, toviewer, globalUniform.volumeAsymmetry );
