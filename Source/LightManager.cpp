@@ -895,14 +895,28 @@ static uint32_t encodeE5( const RgFloat3D& c, float* normalization )
     const float norm = std::max( { l.x, l.y, l.z } ) / float{ ENCODE_E5B9G9R9_SHAREDEXP_MAX };
 
     uint32_t r;
+    float    normalizationDivisor;
     if( norm <= 1.0f )
     {
+        // Radiance fits in the shared-exponent range: encode l directly, with
+        // NO normalization applied. The decoders (decodeAsSphereLight /
+        // decodeAsSpotLight in Shaders/Light.h) multiply the decoded E5 color by
+        // the value reported through `normalization`, so it MUST be 1.0 here.
+        // The old code reported `norm` (< 1) even on this branch, which squared
+        // small radiances (color ~= l * norm = l^2 / SHAREDEXP_MAX) and made
+        // ordinary lights ~1e4..1e8x too dark -- effectively black. This is the
+        // root cause of the "no light source is hit / scene unlit" symptom in the
+        // dhewm3 RTGL1 port that only `rt_light_intensity 2000000` worked around.
+        // (dhewm3 port, 2026-11-13.)
         r = encodeE5B9G9R9( l );
+        normalizationDivisor = 1.0f;
     }
     else
     {
-        // fallback: normalize to preserve colors, to not clamp to white
+        // Radiance exceeds the shared-exponent range: divide by norm to avoid
+        // clamping to white, then let the decoder multiply it back.
         r = encodeE5B9G9R9( l / norm );
+        normalizationDivisor = norm;
     }
 
 #if 0
@@ -912,7 +926,7 @@ static uint32_t encodeE5( const RgFloat3D& c, float* normalization )
     }
 #endif
 
-    *normalization = norm;
+    *normalization = normalizationDivisor;
     return r;
 }
 
