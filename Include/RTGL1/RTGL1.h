@@ -185,6 +185,9 @@ typedef enum RgStructureType
     RG_STRUCTURE_TYPE_START_FRAME_RENDER_RESOLUTION_PARAMS  = 33,
     RG_STRUCTURE_TYPE_SPAWN_FLUID_INFO                      = 34,
     RG_STRUCTURE_TYPE_START_FRAME_FLUID_PARAMS              = 35,
+    // dhewm3 port (2026-11-14): supply an in-memory normal map for the
+    // "_n" companion slot of an RgOriginalTextureInfo material.
+    RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_NORMAL_MAP_EXT      = 36,
 } RgStructureType;
 
 typedef enum RgTextureSwizzling
@@ -751,6 +754,21 @@ typedef struct RgOriginalTextureInfo
     RgSamplerAddressMode    addressModeU;
     RgSamplerAddressMode    addressModeV;
 } RgOriginalTextureInfo;
+
+// Can be linked after RgOriginalTextureInfo.
+// Provides the tangent-space NORMAL MAP for this material as in-memory pixels,
+// so RTGL1 binds it to the "_n" (TEXTURE_NORMAL_INDEX) companion slot without
+// requiring a "<materialName>_n" file on disk. pPixels is RGBA8 (R,G,B = the
+// tangent-space normal; A is ignored by RTGL1's normal-map sampler). The memory
+// only needs to stay alive for the duration of the rgProvideOriginalTexture call.
+typedef struct RgOriginalTextureNormalMapEXT
+{
+    RgStructureType            sType;
+    void*                      pNext;
+    // R8G8B8A8 pixel data. Must be (size.width * size.height * 4) bytes.
+    const void*                pPixels;
+    RgExtent2D                 size;
+} RgOriginalTextureNormalMapEXT;
 
 typedef RgResult( RGAPI_PTR* PFN_rgProvideOriginalTexture )( const RgOriginalTextureInfo* pInfo );
 typedef RgResult( RGAPI_PTR* PFN_rgMarkOriginalTextureAsDeleted )( const char* pTextureName );
