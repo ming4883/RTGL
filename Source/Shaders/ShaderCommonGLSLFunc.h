@@ -44,8 +44,8 @@
 
 
 
-#define FAKE_ROUGH_SPECULAR_THRESHOLD 0.5
-#define FAKE_ROUGH_SPECULAR_LENGTH 0.25
+#define FAKE_ROUGH_SPECULAR_THRESHOLD 0.25
+#define FAKE_ROUGH_SPECULAR_LENGTH 0.15
 
 #define SHIPPING_HACK 1
 // Ported from Quake 2 RTX (path_tracer_rgen.h: clamp_output / MAX_OUTPUT_VALUE).

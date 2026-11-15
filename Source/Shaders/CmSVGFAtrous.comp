@@ -300,11 +300,9 @@ void main()
             const vec3 diffuse = filteredDiff;
             const vec3 indirect = filteredIndir;
 
-            // to prevent noise, specular will be replaced with indir, if the surface is too rough
-            const vec3 specular = mix(
-                filteredSpec,
-                indirect,
-                smoothstep(FAKE_ROUGH_SPECULAR_THRESHOLD, FAKE_ROUGH_SPECULAR_THRESHOLD + FAKE_ROUGH_SPECULAR_LENGTH, roughness));
+            // Preserve direct GGX specular (ilteredSpec) across all roughnesses instead of
+            // overwriting it with indirect when roughness >= FAKE_ROUGH_SPECULAR_THRESHOLD.
+            const vec3 specular = filteredSpec;
 
             const vec3 ro_s = getSpecularColor(albedo, metallic);
             const vec3 ro_d = albedo * (1.0 - metallic);

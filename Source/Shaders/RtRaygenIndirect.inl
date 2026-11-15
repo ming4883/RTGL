@@ -592,16 +592,24 @@ void main()
     {
         const vec3 direct = texelFetchUnfilteredSpecular( pix );
         // save indirect hit distance, if brighter than the direct light
-        if( getLuminance( direct ) < getLuminance( indirRadiance ) )
+        // dominant channel: a red indirect bounce must be able to outrank the
+        // direct term even though its luminance is low
+        if( getMaxChannel( direct ) < getMaxChannel( indirRadiance ) )
         {
             imageStore(
                 framebufViewDirection, pix, vec4( -surf.toViewerDir, length( surfToHitPoint ) ) );
         }
 
 
-        // demodulate for denoising
-        imageStoreUnfilteredSpecular( pix,
-                                      direct + demodulateSpecular( indirRadiance, surf.specularColor ) );
+        // demodulate for denoising: only add indirect specular bounce when !useDiffuse(surf.roughness);
+        // when useDiffuse(surf.roughness) is true, indirRadiance is Lambertian diffuse GI and is already
+        // accumulated via framebufUnfilteredIndir -> filteredIndir.
+        vec3 totalSpec = direct;
+        if( !useDiffuse( surf.roughness ) )
+        {
+            totalSpec += demodulateSpecular( indirRadiance, surf.specularColor );
+        }
+        imageStoreUnfilteredSpecular( pix, totalSpec );
     }
 
     {
