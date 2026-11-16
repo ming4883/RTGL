@@ -181,7 +181,7 @@ void main()
             const float l_q = getLuminance(color_q);
 
             const float w_z = exp(-abs(pixData.depth - qData.depth) * safePositiveRcp(max(pixData.depth, qData.depth)));
-            const float w_n = pow(max(0.0, dotEnc(pixData.encNormal, qData.encNormal)), 128.0);
+            const float w_n = pow(max(0.0, dotEnc(pixData.encNormal, qData.encNormal)), 16.0);
 
             const float w = w_z * w_n;
 

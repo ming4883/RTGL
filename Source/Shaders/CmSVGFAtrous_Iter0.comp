@@ -220,7 +220,7 @@ void atrous0(
     outIndir    = decodeE5B9G9R9(center.encIndirColor);
 
     const float l = getLuminance(outDiff);
-    const float wLumMultiplier = 1.0 / (SIGMA_LUMINANCE * prefilterLuminanceVariance() + 0.00001);
+    const float wLumMultiplier = 1.0 / (SIGMA_LUMINANCE * max(prefilterLuminanceVariance(), 0.08) + 0.001);
    
     // the rougher the surface, the more blur to apply
     const float wRoughMultiplier = clamp(center.roughness * 30, 0, 1);
@@ -259,7 +259,7 @@ void atrous0(
             const float n_n = max(1.0 - isPrimary, dotEnc(center.encNormal, other.encNormal)); // always 1.0 if non-primary
 
             const float w_z = abs(center.depth - other.depth) / max(gradDepth * (abs(xx) + abs(yy)), 0.01) * isPrimary; // 0.0 if non-primary
-            const float w_n = pow(n_n, 128.0);
+            const float w_n = pow(max(0.0, n_n), 16.0);
             const float w_l = abs(l - l_q) * wLumMultiplier;
 
             // larger weight if roughness difference is small

@@ -379,7 +379,12 @@ vec3 evalLightBoundsAndCookie( const ShLightEncoded encoded, const vec3 surfPosi
         return vec3( 0.0 );
     }
 
-    vec3 atten = vec3( 1.0 );
+    // Smooth 10% border feathering (as in DUDE's dudeLightAtten) so non-zero-clamped
+    // cookies and falloff edges fade smoothly to 0 at the OBB faces without creating
+    // a hard step discontinuity that triggers ASVGF gradient resets.
+    const vec3 stf = vec3( st, f );
+    const vec3 borderFade = smoothstep( vec3( 0.0 ), vec3( 0.10 ), min( stf, vec3( 1.0 ) - stf ) );
+    vec3 atten = vec3( borderFade.x * borderFade.y * borderFade.z );
 
 #ifdef DESC_SET_TEXTURES
     const bool hasCookie  = ( encoded.cookieTexIndex  != 0u && encoded.cookieTexIndex  != MATERIAL_NO_TEXTURE );
@@ -436,15 +441,28 @@ LightSample sampleLight(const ShLightEncoded encoded, const vec3 surfPosition, c
     }
 
     LightSample s;
+    // For Doom 3 bounded lights (`boundsFlags & 1`), evaluate shadow rays toward the
+    // exact light center (or a tiny jitter radius) instead of the full `0.08 * rawRadius`
+    // sphere surface (which is 20..169 Doom units wide!). A 160-unit sphere causes
+    // massive random penumbra noise and self-occlusion on nearby geometry, whereas
+    // DUDE traces toward the exact light origin for noise-free shadows.
+    const vec2 effRnd = ( ( encoded.boundsFlags & 1u ) != 0u ) ? ( pointRnd * 0.05 ) : pointRnd;
+
     switch (encoded.lightType)
     {
-        case LIGHT_TYPE_DIRECTIONAL:    s = sampleDirectionalLight   (decodeAsDirectionalLight   (encoded), surfPosition, pointRnd); break;
-        case LIGHT_TYPE_SPHERE:         s = sampleSphereLight        (decodeAsSphereLight        (encoded), surfPosition, pointRnd); break;
-        case LIGHT_TYPE_SPOT:           s = sampleSpotLight          (decodeAsSpotLight          (encoded), surfPosition, pointRnd); break;
+        case LIGHT_TYPE_DIRECTIONAL:    s = sampleDirectionalLight   (decodeAsDirectionalLight   (encoded), surfPosition, effRnd); break;
+        case LIGHT_TYPE_SPHERE:         s = sampleSphereLight        (decodeAsSphereLight        (encoded), surfPosition, effRnd); break;
+        case LIGHT_TYPE_SPOT:           s = sampleSpotLight          (decodeAsSpotLight          (encoded), surfPosition, effRnd); break;
 #if TRIANGLE_LIGHTS
-        case LIGHT_TYPE_TRIANGLE:       s = sampleTriangleLight      (decodeAsTriangleLight      (encoded), surfPosition, pointRnd); break;
+        case LIGHT_TYPE_TRIANGLE:       s = sampleTriangleLight      (decodeAsTriangleLight      (encoded), surfPosition, effRnd); break;
 #endif
         default:                        return emptyLightSample();
+    }
+
+    if( ( encoded.boundsFlags & 1u ) != 0u && encoded.lightType == LIGHT_TYPE_SPHERE )
+    {
+        const SphereLight sl = decodeAsSphereLight( encoded );
+        s.position = sl.center;
     }
 
     s.color *= boundsAtten;

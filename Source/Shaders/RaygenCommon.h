@@ -492,6 +492,16 @@ Reservoir calcInitialReservoir(uint seed, uint salt, const Surface surf, const v
     normalizeReservoir(dirLightReservoir, 1);
 
     #if LIGHT_SAMPLE_METHOD == LIGHT_SAMPLE_METHOD_INITIAL
+    if (isReservoirValid(regularReservoir))
+    {
+        LightSample lightSample = sampleLight(lightSources[regularReservoir.selected], surf.position, pointRnd);
+        float v = traceVisibility(surf, lightSample.position, regularReservoir.selected);
+
+        if (v < 0.5)
+        {
+            regularReservoir = emptyReservoir();
+        }
+    }
     if (isReservoirValid(dirLightReservoir))
     {
         LightSample lightSample = sampleLight(lightSources[dirLightReservoir.selected], surf.position, pointRnd);
@@ -615,10 +625,16 @@ Reservoir selectLight_Direct(const ivec2 pix, uint seed, const Surface surf, con
 
         Reservoir spatial = imageLoadReservoirInitial(pp);
 
+        float spatialTargetPdf_curSurf = 0.0;
+        if (spatial.selected != LIGHT_INDEX_NONE)
+        {
+            spatialTargetPdf_curSurf = targetPdfForLightSample(spatial.selected, surf, pointRnd);
+        }
+
         float rnd = rnd16(seed, salt++);
-        updateCombinedReservoir(
+        updateCombinedReservoir_newSurf(
             combined, 
-            spatial, rnd);
+            spatial, spatialTargetPdf_curSurf, rnd);
     }
 
 
