@@ -2072,6 +2072,38 @@ void RTGL1::VulkanDevice::UploadLight( const RgLightInfo* pInfo )
         return {};
     };
 
+    auto findBoundsCookie =
+        [ this ]( const RgLightInfo& info ) -> std::optional< LightBoundsAndCookieCopy > {
+        if( auto l = pnext::find< RgLightBoundsAndCookieEXT >( &info ) )
+        {
+            LightBoundsAndCookieCopy bc{};
+            std::memcpy( bc.lightProject, l->lightProject, sizeof( bc.lightProject ) );
+            bc.flags           = l->flags;
+            bc.cookieTexIndex  = MATERIAL_NO_TEXTURE;
+            bc.falloffTexIndex = MATERIAL_NO_TEXTURE;
+            if( l->pCookieTextureName && l->pCookieTextureName[ 0 ] != '\0' )
+            {
+                uint32_t idx = textureManager->GetMaterialTextures( l->pCookieTextureName )
+                                   .indices[ TEXTURE_ALBEDO_ALPHA_INDEX ];
+                if( idx != EMPTY_TEXTURE_INDEX )
+                {
+                    bc.cookieTexIndex = idx;
+                }
+            }
+            if( l->pFalloffTextureName && l->pFalloffTextureName[ 0 ] != '\0' )
+            {
+                uint32_t idx = textureManager->GetMaterialTextures( l->pFalloffTextureName )
+                                   .indices[ TEXTURE_ALBEDO_ALPHA_INDEX ];
+                if( idx != EMPTY_TEXTURE_INDEX )
+                {
+                    bc.falloffTexIndex = idx;
+                }
+            }
+            return bc;
+        }
+        return {};
+    };
+
     auto ext = findExt( *pInfo );
     if( !ext )
     {
@@ -2082,9 +2114,10 @@ void RTGL1::VulkanDevice::UploadLight( const RgLightInfo* pInfo )
     }
 
     auto light = LightCopy{
-        .base       = *pInfo,
-        .extension  = *ext,
-        .additional = findAdditional( *pInfo ),
+        .base         = *pInfo,
+        .extension    = *ext,
+        .additional   = findAdditional( *pInfo ),
+        .boundsCookie = findBoundsCookie( *pInfo ),
     };
 
     // reset pNext, as using in-place members

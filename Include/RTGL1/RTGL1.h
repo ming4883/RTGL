@@ -188,6 +188,9 @@ typedef enum RgStructureType
     // dhewm3 port (2026-11-14): supply an in-memory normal map for the
     // "_n" companion slot of an RgOriginalTextureInfo material.
     RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_NORMAL_MAP_EXT      = 36,
+    // dhewm3 port (2026-11-16): supply Doom 3 OBB / frustum projection planes
+    // (S, T, Q, Falloff) and 2D cookie / falloff texture names on RgLightInfo.
+    RG_STRUCTURE_TYPE_LIGHT_BOUNDS_AND_COOKIE_EXT          = 37,
 } RgStructureType;
 
 typedef enum RgTextureSwizzling
@@ -688,6 +691,21 @@ typedef struct RgLightSpotEXT
     // Outer cone angle. In radians.
     float               angleInner;
 } RgLightSpotEXT;
+
+// Can be linked after RgLightInfo.
+// Supplies Doom 3's world-space lightProject planes (proj[0]=S, proj[1]=T,
+// proj[2]=Q, proj[3]=Falloff) plus optional 2D projection cookie & falloff
+// texture names so RTGL1 clips the light to its exact OBB/frustum volume and
+// modulates radiance by the cookie * falloff textures.
+typedef struct RgLightBoundsAndCookieEXT
+{
+    RgStructureType sType;
+    void*           pNext;
+    float           lightProject[ 4 ][ 4 ];
+    const char*     pCookieTextureName;
+    const char*     pFalloffTextureName;
+    uint32_t        flags; // bit 0 = enforce OBB/frustum bounds, bit 1 = projected spot
+} RgLightBoundsAndCookieEXT;
 
 typedef struct RgLightInfo
 {

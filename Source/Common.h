@@ -119,11 +119,20 @@ void ReportMemoryUsage( VkPhysicalDevice physicalDevice );
 using AnyLightEXT =
     std::variant< RgLightDirectionalEXT, RgLightSphericalEXT, RgLightSpotEXT, RgLightPolygonalEXT >;
 
+struct LightBoundsAndCookieCopy
+{
+    float    lightProject[ 4 ][ 4 ]{};
+    uint32_t cookieTexIndex{ UINT32_MAX };
+    uint32_t falloffTexIndex{ UINT32_MAX };
+    uint32_t flags{ 0 };
+};
+
 struct LightCopy
 {
-    RgLightInfo                           base{};
-    AnyLightEXT                           extension{};
-    std::optional< RgLightAdditionalEXT > additional{};
+    RgLightInfo                             base{};
+    AnyLightEXT                             extension{};
+    std::optional< RgLightAdditionalEXT >   additional{};
+    std::optional< LightBoundsAndCookieCopy > boundsCookie{};
 };
 
 struct ImportExportParams

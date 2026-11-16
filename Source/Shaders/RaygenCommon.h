@@ -434,18 +434,44 @@ Reservoir calcInitialReservoir(uint seed, uint salt, const Surface surf, const v
     else
 #endif // LIGHT_GRID_ENABLED
     {      
-        for (int i = 0; i < INITIAL_SAMPLES; i++)
+        // Exhaustive RIS (ported from DUDE's restir_di.frag `r_rtReStirDICandidates 0`):
+        // When `lightCount <= 64` (typical for Doom 3 rooms/areas), iterate ALL lights
+        // deterministically with `oneOverSourcePdf_xi = 1.0` instead of randomly drawing
+        // 8 blind samples out of `lightCount`. Combined with `evalLightBoundsAndCookie()`
+        // OBB culling in `sampleLight()`, out-of-box lights immediately return 0 while
+        // every light whose OBB covers `surf.position` is guaranteed to be evaluated with
+        // ZERO candidate-selection variance!
+        #if LIGHT_SAMPLE_METHOD == LIGHT_SAMPLE_METHOD_INITIAL
+        if (globalUniform.lightCount <= 64u)
         {
-            // uniform distribution as a coarse source pdf
-            float rnd = rnd16(seed, salt++);
-            uint xi = LIGHT_ARRAY_REGULAR_LIGHTS_OFFSET + clamp(uint(rnd * globalUniform.lightCount), 0, globalUniform.lightCount - 1);
-            float oneOverSourcePdf_xi = globalUniform.lightCount;
+            for (uint i = 0u; i < globalUniform.lightCount; i++)
+            {
+                uint xi = LIGHT_ARRAY_REGULAR_LIGHTS_OFFSET + i;
+                LightSample lightSample = sampleLight(lightSources[xi], surf.position, pointRnd);
+                float targetPdf_xi = targetPdfForLightSample(lightSample, surf);
+                if (targetPdf_xi > 0.0)
+                {
+                    float rndRis = rnd16(seed, salt++);
+                    updateReservoir(regularReservoir, xi, targetPdf_xi, 1.0, rndRis);
+                }
+            }
+        }
+        else
+        #endif
+        {
+            for (int i = 0; i < INITIAL_SAMPLES; i++)
+            {
+                // uniform distribution as a coarse source pdf
+                float rnd = rnd16(seed, salt++);
+                uint xi = LIGHT_ARRAY_REGULAR_LIGHTS_OFFSET + clamp(uint(rnd * globalUniform.lightCount), 0, globalUniform.lightCount - 1);
+                float oneOverSourcePdf_xi = globalUniform.lightCount;
 
-            LightSample lightSample = sampleLight(lightSources[xi], surf.position, pointRnd);
-            float targetPdf_xi = targetPdfForLightSample(lightSample, surf);
+                LightSample lightSample = sampleLight(lightSources[xi], surf.position, pointRnd);
+                float targetPdf_xi = targetPdfForLightSample(lightSample, surf);
 
-            float rndRis = rnd16(seed, salt++);
-            updateReservoir(regularReservoir, xi, targetPdf_xi, oneOverSourcePdf_xi, rndRis);
+                float rndRis = rnd16(seed, salt++);
+                updateReservoir(regularReservoir, xi, targetPdf_xi, oneOverSourcePdf_xi, rndRis);
+            }
         }
     }
     normalizeReservoir(regularReservoir, 1);

@@ -351,18 +351,104 @@ float getLightWeight(const ShLightEncoded encoded, const vec3 cellCenter, float 
     }
 }
 
+// Evaluate Doom 3 OBB / frustum bounds (projS, projT, projQ, projF) and optional
+// 2D projection cookie + falloff textures (ported from DUDE's rt_light_eval.glsl
+// & rt_light_tex.glsl). When `encoded.boundsFlags == 0` (e.g. GZDoom), returns
+// vec3(1.0) immediately with zero overhead.
+vec3 evalLightBoundsAndCookie( const ShLightEncoded encoded, const vec3 surfPosition )
+{
+    if( ( encoded.boundsFlags & 1u ) == 0u )
+    {
+        return vec3( 1.0 );
+    }
+
+    const vec4  hw = vec4( surfPosition, 1.0 );
+    const float q  = dot( hw, encoded.projQ );
+    if( q <= 1e-4 )
+    {
+        return vec3( 0.0 );
+    }
+
+    const float invQ = 1.0 / q;
+    const vec2  st   = vec2( dot( hw, encoded.projS ), dot( hw, encoded.projT ) ) * invQ;
+    const float f    = dot( hw, encoded.projF );
+
+    // Exact OBB / frustum clip: outside [0,1]^3 the light volume has zero reach.
+    if( st.x <= 0.0 || st.x >= 1.0 || st.y <= 0.0 || st.y >= 1.0 || f <= 0.0 || f >= 1.0 )
+    {
+        return vec3( 0.0 );
+    }
+
+    vec3 atten = vec3( 1.0 );
+
+#ifdef DESC_SET_TEXTURES
+    const bool hasCookie  = ( encoded.cookieTexIndex  != 0u && encoded.cookieTexIndex  != MATERIAL_NO_TEXTURE );
+    const bool hasFalloff = ( encoded.falloffTexIndex != 0u && encoded.falloffTexIndex != MATERIAL_NO_TEXTURE );
+
+    if( hasCookie )
+    {
+        atten *= getTextureSampleLod( encoded.cookieTexIndex, st, 0.0 ).rgb;
+    }
+    else
+    {
+        // Analytic radial XY window when no cookie texture is bound
+        const vec2  dxy = st * 2.0 - 1.0;
+        const float r2  = dot( dxy, dxy );
+        if( r2 >= 1.0 ) { return vec3( 0.0 ); }
+        atten *= ( 1.0 - r2 ) * ( 1.0 - r2 );
+    }
+
+    if( hasFalloff )
+    {
+        atten *= getTextureSampleLod( encoded.falloffTexIndex, vec2( f, 0.5 ), 0.0 ).rgb;
+    }
+    else if( ( encoded.boundsFlags & 2u ) != 0u )
+    {
+        // Projected spot default: axial fade near far plane
+        atten *= smoothstep( 0.0, 0.1, 1.0 - f );
+    }
+    else
+    {
+        // Point light default: symmetric Z falloff
+        const float dz = f * 2.0 - 1.0;
+        const float z2 = dz * dz;
+        if( z2 >= 1.0 ) { return vec3( 0.0 ); }
+        atten *= ( 1.0 - z2 ) * ( 1.0 - z2 );
+    }
+#else
+    const vec3 e = smoothstep( vec3( 0.0 ), vec3( 0.15 ), min( vec3( st, f ), vec3( 1.0 ) - vec3( st, f ) ) );
+    atten *= e.x * e.y * e.z;
+#endif
+
+    return atten;
+}
+
 LightSample sampleLight(const ShLightEncoded encoded, const vec3 surfPosition, const vec2 pointRnd)
 {
+    vec3 boundsAtten = vec3( 1.0 );
+    if( ( encoded.boundsFlags & 1u ) != 0u )
+    {
+        boundsAtten = evalLightBoundsAndCookie( encoded, surfPosition );
+        if( max( boundsAtten.r, max( boundsAtten.g, boundsAtten.b ) ) <= 0.0 )
+        {
+            return emptyLightSample();
+        }
+    }
+
+    LightSample s;
     switch (encoded.lightType)
     {
-        case LIGHT_TYPE_DIRECTIONAL:    return sampleDirectionalLight   (decodeAsDirectionalLight   (encoded), surfPosition, pointRnd);
-        case LIGHT_TYPE_SPHERE:         return sampleSphereLight        (decodeAsSphereLight        (encoded), surfPosition, pointRnd);
-        case LIGHT_TYPE_SPOT:           return sampleSpotLight          (decodeAsSpotLight          (encoded), surfPosition, pointRnd);
+        case LIGHT_TYPE_DIRECTIONAL:    s = sampleDirectionalLight   (decodeAsDirectionalLight   (encoded), surfPosition, pointRnd); break;
+        case LIGHT_TYPE_SPHERE:         s = sampleSphereLight        (decodeAsSphereLight        (encoded), surfPosition, pointRnd); break;
+        case LIGHT_TYPE_SPOT:           s = sampleSpotLight          (decodeAsSpotLight          (encoded), surfPosition, pointRnd); break;
 #if TRIANGLE_LIGHTS
-        case LIGHT_TYPE_TRIANGLE:       return sampleTriangleLight      (decodeAsTriangleLight      (encoded), surfPosition, pointRnd);
+        case LIGHT_TYPE_TRIANGLE:       s = sampleTriangleLight      (decodeAsTriangleLight      (encoded), surfPosition, pointRnd); break;
 #endif
         default:                        return emptyLightSample();
     }
+
+    s.color *= boundsAtten;
+    return s;
 }
 
 #endif // LIGHT_H_

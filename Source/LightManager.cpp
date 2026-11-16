@@ -104,7 +104,40 @@ RTGL1::LightManager::~LightManager()
 namespace
 {
 
-static_assert( sizeof( RTGL1::ShLightEncoded ) == 24, "Change encoding" );
+static_assert( sizeof( RTGL1::ShLightEncoded ) == 112, "Change encoding" );
+
+void FillBoundsAndCookie( RTGL1::ShLightEncoded&                               lt,
+                          const std::optional< RTGL1::LightBoundsAndCookieCopy >& bc )
+{
+    if( bc )
+    {
+        lt.boundsFlags     = bc->flags;
+        lt.cookieTexIndex  = bc->cookieTexIndex;
+        lt.falloffTexIndex = bc->falloffTexIndex;
+        lt.boundsPad       = 0;
+        for( int i = 0; i < 4; i++ )
+        {
+            lt.projS[ i ] = bc->lightProject[ 0 ][ i ];
+            lt.projT[ i ] = bc->lightProject[ 1 ][ i ];
+            lt.projQ[ i ] = bc->lightProject[ 2 ][ i ];
+            lt.projF[ i ] = bc->lightProject[ 3 ][ i ];
+        }
+    }
+    else
+    {
+        lt.boundsFlags     = 0;
+        lt.cookieTexIndex  = MATERIAL_NO_TEXTURE;
+        lt.falloffTexIndex = MATERIAL_NO_TEXTURE;
+        lt.boundsPad       = 0;
+        for( int i = 0; i < 4; i++ )
+        {
+            lt.projS[ i ] = 0.0f;
+            lt.projT[ i ] = 0.0f;
+            lt.projQ[ i ] = 0.0f;
+            lt.projF[ i ] = 0.0f;
+        }
+    }
+}
 
 
 RTGL1::ShLightEncoded EncodeAsDirectionalLight( const RgLightDirectionalEXT& info,
@@ -124,7 +157,7 @@ RTGL1::ShLightEncoded EncodeAsDirectionalLight( const RgLightDirectionalEXT& inf
     }
 
 
-    RTGL1::ShLightEncoded lt;
+    RTGL1::ShLightEncoded lt = {};
 
     lt.lightType = LIGHT_TYPE_DIRECTIONAL;
 
@@ -159,7 +192,7 @@ RTGL1::ShLightEncoded EncodeAsSphereLight( const RgLightSphericalEXT& info,
     }
 
 
-    RTGL1::ShLightEncoded lt;
+    RTGL1::ShLightEncoded lt = {};
 
     lt.lightType = LIGHT_TYPE_SPHERE;
 
@@ -265,7 +298,7 @@ RTGL1::ShLightEncoded EncodeAsSpotLight( const RgLightSpotEXT& info,
     }
 
 
-    RTGL1::ShLightEncoded lt;
+    RTGL1::ShLightEncoded lt = {};
 
     lt.lightType = LIGHT_TYPE_SPOT;
 
@@ -462,11 +495,10 @@ void RTGL1::LightManager::Add( uint32_t           frameIndex,
                     return;
                 }
 
-                AddInternal(
-                    frameIndex,
-                    light.base.uniqueID,
-                    EncodeAsDirectionalLight(
-                        lext, CalculateLightStyle( light.additional, lightstyles ), transform ) );
+                auto enc = EncodeAsDirectionalLight(
+                    lext, CalculateLightStyle( light.additional, lightstyles ), transform );
+                FillBoundsAndCookie( enc, light.boundsCookie );
+                AddInternal( frameIndex, light.base.uniqueID, enc );
             },
             [ & ]( const RgLightSphericalEXT& lext ) {
                 if( IsLightColorTooDim( lext ) )
@@ -474,11 +506,10 @@ void RTGL1::LightManager::Add( uint32_t           frameIndex,
                     return;
                 }
 
-                AddInternal(
-                    frameIndex,
-                    light.base.uniqueID,
-                    EncodeAsSphereLight(
-                        lext, CalculateLightStyle( light.additional, lightstyles ), transform ) );
+                auto enc = EncodeAsSphereLight(
+                    lext, CalculateLightStyle( light.additional, lightstyles ), transform );
+                FillBoundsAndCookie( enc, light.boundsCookie );
+                AddInternal( frameIndex, light.base.uniqueID, enc );
             },
             [ & ]( const RgLightSpotEXT& lext ) {
                 if( IsLightColorTooDim( lext ) )
@@ -486,11 +517,10 @@ void RTGL1::LightManager::Add( uint32_t           frameIndex,
                     return;
                 }
 
-                AddInternal(
-                    frameIndex,
-                    light.base.uniqueID,
-                    EncodeAsSpotLight(
-                        lext, CalculateLightStyle( light.additional, lightstyles ), transform ) );
+                auto enc = EncodeAsSpotLight(
+                    lext, CalculateLightStyle( light.additional, lightstyles ), transform );
+                FillBoundsAndCookie( enc, light.boundsCookie );
+                AddInternal( frameIndex, light.base.uniqueID, enc );
             },
             [ & ]( const RgLightPolygonalEXT& lext ) {
 #if TRIANGLE_LIGHTS

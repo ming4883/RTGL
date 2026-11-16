@@ -358,6 +358,16 @@ struct ShLightEncoded
     float ldata1;
     float ldata2;
     float ldata3;
+    uint boundsFlags;
+    uint cookieTexIndex;
+    uint falloffTexIndex;
+    uint boundsPad;
+    uint boundsPad1;
+    uint boundsPad2;
+    vec4 projS;
+    vec4 projT;
+    vec4 projQ;
+    vec4 projF;
 };
 
 struct ShLightInCell

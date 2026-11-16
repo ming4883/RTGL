@@ -702,6 +702,16 @@ LIGHT_ENCODED_STRUCT = [
     (TYPE_FLOAT32,      1,      "ldata1",               1),
     (TYPE_FLOAT32,      1,      "ldata2",               1),
     (TYPE_FLOAT32,      1,      "ldata3",               1),
+    (TYPE_UINT32,       1,      "boundsFlags",          1),
+    (TYPE_UINT32,       1,      "cookieTexIndex",       1),
+    (TYPE_UINT32,       1,      "falloffTexIndex",      1),
+    (TYPE_UINT32,       1,      "boundsPad",            1),
+    (TYPE_UINT32,       1,      "boundsPad1",           1),
+    (TYPE_UINT32,       1,      "boundsPad2",           1),
+    (TYPE_FLOAT32,      4,      "projS",                1),
+    (TYPE_FLOAT32,      4,      "projT",                1),
+    (TYPE_FLOAT32,      4,      "projQ",                1),
+    (TYPE_FLOAT32,      4,      "projF",                1),
 ]
 
 # TODO: light index / target pdf - 16 bits

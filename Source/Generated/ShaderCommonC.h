@@ -363,6 +363,16 @@ struct ShLightEncoded
     float ldata1;
     float ldata2;
     float ldata3;
+    uint32_t boundsFlags;
+    uint32_t cookieTexIndex;
+    uint32_t falloffTexIndex;
+    uint32_t boundsPad;
+    uint32_t boundsPad1;
+    uint32_t boundsPad2;
+    float projS[4];
+    float projT[4];
+    float projQ[4];
+    float projF[4];
 };
 
 struct ShLightInCell
