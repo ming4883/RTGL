@@ -207,6 +207,19 @@ bool doesPayloadContainHitInfo(const ShPayload p)
     return true;
 }
 
+bool doesPayloadContainSky(const ShPayload p)
+{
+    if (p.instIdAndIndex == UINT32_MAX || p.geomAndPrimIndex == UINT32_MAX)
+    {
+        return false;
+    }
+
+    int instanceId, instanceCustomIndex;
+    unpackInstanceIdAndCustomIndex(p.instIdAndIndex, instanceId, instanceCustomIndex);
+
+    return ((instanceCustomIndex & INSTANCE_CUSTOM_INDEX_FLAG_SKY) != 0);
+}
+
 void resetPayload()
 {
     g_payload.baryCoords = vec2(0.0);

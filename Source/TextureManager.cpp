@@ -510,14 +510,15 @@ bool TextureManager::TryCreateMaterial( VkCommandBuffer              cmd,
 
     auto details = pnext::find< RgOriginalTextureDetailsEXT >( &info );
     auto nrmMap  = pnext::find< RgOriginalTextureNormalMapEXT >( &info );
+    auto emisMap = pnext::find< RgOriginalTextureEmissiveMapEXT >( &info );
 
-    // dhewm3 port (2026-11-14): an in-memory normal map supplied via the
-    // pNext chain becomes the "_n" companion slot default. If a disk
-    // "<materialName>_n" override exists it still wins (TextureOverrides
-    // checks the file first); otherwise these pixels are used, so the
-    // normal map works without writing any asset to the mat/ folder.
-    const void* nrmPixels = nrmMap ? nrmMap->pPixels : nullptr;
-    RgExtent2D  nrmSize   = nrmMap ? nrmMap->size   : RgExtent2D{ 0, 0 };
+    // dhewm3 port (2026-11-14 / 2026-11-16): in-memory normal map ("_n", slot 2)
+    // and emissive/additive mask map ("_e", slot 3) supplied via the pNext chain
+    // become the companion slot defaults if no disk override file exists.
+    const void* nrmPixels  = nrmMap  ? nrmMap->pPixels  : nullptr;
+    RgExtent2D  nrmSize    = nrmMap  ? nrmMap->size     : RgExtent2D{ 0, 0 };
+    const void* emisPixels = emisMap ? emisMap->pPixels : nullptr;
+    RgExtent2D  emisSize   = emisMap ? emisMap->size    : RgExtent2D{ 0, 0 };
 
 
     // clang-format off
@@ -525,7 +526,7 @@ bool TextureManager::TryCreateMaterial( VkCommandBuffer              cmd,
         TextureOverrides{ ovrdFolder, info.pTextureName, postfixes[ 0 ], info.pPixels, info.size, getVkFormat( details, VK_FORMAT_R8G8B8A8_SRGB ), OnlyKTX2LoaderIfNonDevMode() },
         TextureOverrides{ ovrdFolder, info.pTextureName, postfixes[ 1 ], nullptr, {}, VK_FORMAT_R8G8B8A8_UNORM, OnlyKTX2LoaderIfNonDevMode() },
         TextureOverrides{ ovrdFolder, info.pTextureName, postfixes[ 2 ], nrmPixels, nrmSize, VK_FORMAT_R8G8B8A8_UNORM, OnlyKTX2LoaderIfNonDevMode() },
-        TextureOverrides{ ovrdFolder, info.pTextureName, postfixes[ 3 ], nullptr, {}, VK_FORMAT_R8G8B8A8_SRGB, OnlyKTX2LoaderIfNonDevMode() },
+        TextureOverrides{ ovrdFolder, info.pTextureName, postfixes[ 3 ], emisPixels, emisSize, VK_FORMAT_R8G8B8A8_SRGB, OnlyKTX2LoaderIfNonDevMode() },
         TextureOverrides{ ovrdFolder, info.pTextureName, postfixes[ 4 ], nullptr, {}, VK_FORMAT_R8_UNORM, OnlyKTX2LoaderIfNonDevMode() },
     };
     static_assert( std::size( ovrd ) == TEXTURES_PER_MATERIAL_COUNT );

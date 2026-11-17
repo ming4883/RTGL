@@ -92,6 +92,7 @@ namespace detail
     template<> constexpr auto TypeToStructureType< RgCameraInfoReadbackEXT              > = RG_STRUCTURE_TYPE_CAMERA_INFO_READ_BACK_EXT            ;
     template<> constexpr auto TypeToStructureType< RgOriginalTextureDetailsEXT          > = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_DETAILS_EXT         ;
     template<> constexpr auto TypeToStructureType< RgOriginalTextureNormalMapEXT      > = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_NORMAL_MAP_EXT      ;
+    template<> constexpr auto TypeToStructureType< RgOriginalTextureEmissiveMapEXT    > = RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_EMISSIVE_MAP_EXT    ;
     template<> constexpr auto TypeToStructureType< RgLightBoundsAndCookieEXT          > = RG_STRUCTURE_TYPE_LIGHT_BOUNDS_AND_COOKIE_EXT          ;
     template<> constexpr auto TypeToStructureType< RgSpawnFluidInfo                     > = RG_STRUCTURE_TYPE_SPAWN_FLUID_INFO                     ;
     template<> constexpr auto TypeToStructureType< RgStartFrameFluidParams              > = RG_STRUCTURE_TYPE_START_FRAME_FLUID_PARAMS             ;
@@ -137,6 +138,7 @@ namespace detail
     static_assert( CheckMembers< RgCameraInfoReadbackEXT >() );
     static_assert( CheckMembers< RgOriginalTextureDetailsEXT >() );
     static_assert( CheckMembers< RgOriginalTextureNormalMapEXT >() );
+    static_assert( CheckMembers< RgOriginalTextureEmissiveMapEXT >() );
     static_assert( CheckMembers< RgLightBoundsAndCookieEXT >() );
     static_assert( CheckMembers< RgSpawnFluidInfo >() );
     static_assert( CheckMembers< RgStartFrameFluidParams >() );
@@ -156,6 +158,7 @@ namespace detail
     template<> struct LinkRootHelper< RgMeshPrimitiveSwapchainedEXT      >{ using Root = RgMeshPrimitiveInfo; };
     template<> struct LinkRootHelper< RgOriginalTextureDetailsEXT        >{ using Root = RgOriginalTextureInfo; };
     template<> struct LinkRootHelper< RgOriginalTextureNormalMapEXT    >{ using Root = RgOriginalTextureInfo; };
+    template<> struct LinkRootHelper< RgOriginalTextureEmissiveMapEXT  >{ using Root = RgOriginalTextureInfo; };
     template<> struct LinkRootHelper< RgLightAdditionalEXT               >{ using Root = RgLightInfo; };
     template<> struct LinkRootHelper< RgLightBoundsAndCookieEXT          >{ using Root = RgLightInfo; };
     template<> struct LinkRootHelper< RgLightDirectionalEXT              >{ using Root = RgLightInfo; };

@@ -551,6 +551,10 @@ ShHitInfo getHitInfoBounce(
     #elif defined( HITINFO_INL_INDIR )
             getTextureSampleLod( tr.emissiveTexture, texCoords[ 0 ], lod ).rgb;
     #endif
+        if( tr.emissiveMult > 0.0 )
+        {
+            emission *= tr.emissiveMult;
+        }
     }
     else
     {

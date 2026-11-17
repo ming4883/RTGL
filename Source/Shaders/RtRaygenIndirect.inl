@@ -135,10 +135,25 @@ Surface traceBounce(const vec3 originPosition, float originRoughness, uint origi
 {
     const ShPayload p = traceIndirectRay(originInstCustomIndex, originPosition, bounceDir); 
 
-    if (!doesPayloadContainHitInfo(p))
+    if (doesPayloadContainSky(p) || (globalUniform.skyType != SKY_TYPE_RASTERIZED_GEOMETRY && !doesPayloadContainHitInfo(p)))
     {
         Surface s;
         s.isSky = true;
+        return s;
+    }
+
+    if (!doesPayloadContainHitInfo(p))
+    {
+        Surface s;
+        s.position = originPosition + bounceDir * MAX_RAY_LENGTH;
+        s.instCustomIndex = 0;
+        s.normal = vec3(0.0, 0.0, 1.0);
+        s.roughness = 1.0;
+        s.albedo = vec3(0.0);
+        s.isSky = false;
+        s.specularColor = vec3(0.0);
+        s.toViewerDir = -bounceDir;
+        out_emission = vec3(0.0);
         return s;
     }
 

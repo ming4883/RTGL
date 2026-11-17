@@ -191,6 +191,9 @@ typedef enum RgStructureType
     // dhewm3 port (2026-11-16): supply Doom 3 OBB / frustum projection planes
     // (S, T, Q, Falloff) and 2D cookie / falloff texture names on RgLightInfo.
     RG_STRUCTURE_TYPE_LIGHT_BOUNDS_AND_COOKIE_EXT          = 37,
+    // dhewm3 port (2026-11-16): supply an in-memory emissive / additive mask map
+    // for the "_e" (TEXTURE_EMISSIVE_INDEX) slot of an RgOriginalTextureInfo material.
+    RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_EMISSIVE_MAP_EXT    = 38,
 } RgStructureType;
 
 typedef enum RgTextureSwizzling
@@ -787,6 +790,20 @@ typedef struct RgOriginalTextureNormalMapEXT
     const void*                pPixels;
     RgExtent2D                 size;
 } RgOriginalTextureNormalMapEXT;
+
+// Can be linked after RgOriginalTextureInfo.
+// Provides the 2D EMISSIVE MAP (`blend add` stage in Doom 3, e.g. `*_add.tga`)
+// for this material as in-memory RGBA8 pixels, bound to the "_e"
+// (TEXTURE_EMISSIVE_INDEX) companion slot so only the additive mask texels glow
+// instead of the entire diffuse surface.
+typedef struct RgOriginalTextureEmissiveMapEXT
+{
+    RgStructureType            sType;
+    void*                      pNext;
+    // R8G8B8A8 pixel data. Must be (size.width * size.height * 4) bytes.
+    const void*                pPixels;
+    RgExtent2D                 size;
+} RgOriginalTextureEmissiveMapEXT;
 
 typedef RgResult( RGAPI_PTR* PFN_rgProvideOriginalTexture )( const RgOriginalTextureInfo* pInfo );
 typedef RgResult( RGAPI_PTR* PFN_rgMarkOriginalTextureAsDeleted )( const char* pTextureName );

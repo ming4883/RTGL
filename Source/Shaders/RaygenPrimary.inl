@@ -646,9 +646,11 @@ void main()
         
         if (!doesPayloadContainHitInfo(currentPayload))
         {
-            throughput *= getMediaTransmittance(currentRayMedia, pow(abs(dot(rayDir, globalUniform.worldUpVector.xyz)), -3));
-
-            storeSky(pix, rayDir, true, throughput, wasSplit);
+            if (doesPayloadContainSky(currentPayload) || (globalUniform.skyType != SKY_TYPE_RASTERIZED_GEOMETRY))
+            {
+                throughput *= getMediaTransmittance(currentRayMedia, pow(abs(dot(rayDir, globalUniform.worldUpVector.xyz)), -3));
+                storeSky(pix, rayDir, true, throughput, wasSplit);
+            }
             return;  
         }
 
