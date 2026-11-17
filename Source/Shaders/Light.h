@@ -459,10 +459,17 @@ LightSample sampleLight(const ShLightEncoded encoded, const vec3 surfPosition, c
         default:                        return emptyLightSample();
     }
 
-    if( ( encoded.boundsFlags & 1u ) != 0u && encoded.lightType == LIGHT_TYPE_SPHERE )
+    if( ( encoded.boundsFlags & 1u ) != 0u )
     {
-        const SphereLight sl = decodeAsSphereLight( encoded );
-        s.position = sl.center;
+        if( encoded.lightType == LIGHT_TYPE_SPHERE )
+        {
+            s.position = decodeAsSphereLight( encoded ).center;
+        }
+        else if( encoded.lightType == LIGHT_TYPE_SPOT )
+        {
+            const SpotLight sl = decodeAsSpotLight( encoded );
+            s.position = sl.center;
+        }
     }
 
     s.color *= boundsAtten;
