@@ -1020,6 +1020,34 @@ auto RTGL1::VulkanDevice::Render( VkCommandBuffer& cmd, const RgDrawFrameInfo& d
         accum = l_applyIf( effectVHS, postef.pVHS, accum );
     }
 
+    if( auto cp = pnext::find< RgDrawFrameCustomPassParams >( &drawInfo ) )
+    {
+        if( cp->pfnCallback )
+        {
+            auto [ colorImage, colorView, colorFormat ] = framebuffers->GetImageHandles( accum, frameIndex );
+            VkImageView depthView = framebuffers->GetImageView( FB_IMAGE_INDEX_DEPTH_NDC, frameIndex );
+            VkImageView currentRenderView = colorView;
+
+            // Invoke the app-owned custom pass (heat haze). RTGL1 only supplies
+            // the injection point and Vulkan handles; drawing lives in dhewm3.
+            cp->pfnCallback(
+                (void*)cmd,
+                frameIndex,
+                (void*)colorView,
+                (void*)depthView,
+                (void*)currentRenderView,
+                renderResolution.UpscaledWidth(),
+                renderResolution.UpscaledHeight(),
+                (void*)device,
+                (void*)physDevice->Get(),
+                (void*)colorImage,
+                (uint32_t)colorFormat,
+                cp->pUserData
+            );
+
+        }
+    }
+
     // draw geometry such as HUD into an upscaled framebuf
     if( !drawInfo.disableRasterization )
     {

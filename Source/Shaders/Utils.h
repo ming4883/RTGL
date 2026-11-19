@@ -67,6 +67,20 @@ float getLuminance(vec3 c)
     return 0.2125 * c.r + 0.7154 * c.g + 0.0721 * c.b;
 }
 
+// Dominant-channel brightness.
+// getLuminance() weights red at only 0.0721, so a saturated red signal reports
+// ~5x less "brightness" than its true peak channel (MAP08 FLOOR6_1: luminance
+// 0.084 vs red channel 0.394). Any ABSOLUTE threshold compared against
+// luminance therefore misfires on saturated colours: antilag reads the room as
+// "dark", keeps dropping history, and the denoiser converges far slower than in
+// neutral areas. Use getMaxChannel() where brightness is compared against an
+// absolute threshold. Do NOT use it where a RATIO is formed
+// (gradSample/normFactor) -- those are scale-invariant and already colour-fair.
+float getMaxChannel(vec3 c)
+{
+    return max(c.r, max(c.g, c.b));
+}
+
 float saturate(float a)
 {
     return clamp(a, 0.0, 1.0);

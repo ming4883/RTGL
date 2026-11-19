@@ -194,6 +194,8 @@ typedef enum RgStructureType
     // dhewm3 port (2026-11-16): supply an in-memory emissive / additive mask map
     // for the "_e" (TEXTURE_EMISSIVE_INDEX) slot of an RgOriginalTextureInfo material.
     RG_STRUCTURE_TYPE_ORIGINAL_TEXTURE_EMISSIVE_MAP_EXT    = 38,
+    // dhewm3 custom post-processing / transparent rasterization pass hook.
+    RG_STRUCTURE_TYPE_DRAW_FRAME_CUSTOM_PASS_PARAMS        = 39,
 } RgStructureType;
 
 typedef enum RgTextureSwizzling
@@ -1244,6 +1246,30 @@ typedef struct RgDrawFrameReflectRefractParams
     // If true, portal normal will be twirled around its 'inPosition'.
     RgBool32        portalNormalTwirl;
 } RgDrawFrameReflectRefractParams;
+
+typedef void (RGAPI_PTR *PFN_rgDrawFrameCustomPassCallback)(
+    void*           pCmd,
+    uint32_t        frameIndex,
+    void*           pColorTargetView,
+    void*           pDepthTargetView,
+    void*           pCurrentRenderView,
+    uint32_t        targetWidth,
+    uint32_t        targetHeight,
+    void*           pDevice,
+    void*           pPhysicalDevice,
+    void*           pColorImage,
+    uint32_t        colorFormat,
+    void*           pUserData
+);
+
+// Can be linked after RgDrawFrameInfo.
+typedef struct RgDrawFrameCustomPassParams
+{
+    RgStructureType                     sType;
+    void*                               pNext;
+    PFN_rgDrawFrameCustomPassCallback   pfnCallback;
+    void*                               pUserData;
+} RgDrawFrameCustomPassParams;
 
 typedef struct RgDrawFrameInfo
 {

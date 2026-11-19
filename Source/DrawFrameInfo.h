@@ -70,6 +70,7 @@ namespace detail
     template<> constexpr auto TypeToStructureType< RgDrawFrameSkyParams                 > = RG_STRUCTURE_TYPE_DRAW_FRAME_SKY_PARAMS                ;
     template<> constexpr auto TypeToStructureType< RgDrawFrameTexturesParams            > = RG_STRUCTURE_TYPE_DRAW_FRAME_TEXTURES_PARAMS           ;
     template<> constexpr auto TypeToStructureType< RgDrawFramePostEffectsParams         > = RG_STRUCTURE_TYPE_DRAW_FRAME_POST_EFFECTS_PARAMS       ;
+    template<> constexpr auto TypeToStructureType< RgDrawFrameCustomPassParams          > = RG_STRUCTURE_TYPE_DRAW_FRAME_CUSTOM_PASS_PARAMS        ;
     template<> constexpr auto TypeToStructureType< RgInstanceCreateInfo                 > = RG_STRUCTURE_TYPE_INSTANCE_CREATE_INFO                 ;
     template<> constexpr auto TypeToStructureType< RgMeshInfo                           > = RG_STRUCTURE_TYPE_MESH_INFO                            ;
     template<> constexpr auto TypeToStructureType< RgMeshPrimitiveInfo                  > = RG_STRUCTURE_TYPE_MESH_PRIMITIVE_INFO                  ;
@@ -116,6 +117,7 @@ namespace detail
     static_assert( CheckMembers< RgDrawFrameSkyParams >() );
     static_assert( CheckMembers< RgDrawFrameTexturesParams >() );
     static_assert( CheckMembers< RgDrawFramePostEffectsParams >() );
+    static_assert( CheckMembers< RgDrawFrameCustomPassParams >() );
     static_assert( CheckMembers< RgInstanceCreateInfo >() );
     static_assert( CheckMembers< RgMeshInfo >() );
     static_assert( CheckMembers< RgMeshPrimitiveInfo >() );
@@ -176,6 +178,7 @@ namespace detail
     template<> struct LinkRootHelper< RgDrawFrameSkyParams               >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFrameTexturesParams          >{ using Root = RgDrawFrameInfo; };
     template<> struct LinkRootHelper< RgDrawFramePostEffectsParams       >{ using Root = RgDrawFrameInfo; };
+    template<> struct LinkRootHelper< RgDrawFrameCustomPassParams        >{ using Root = RgDrawFrameInfo; };
     // clang-format on
 
     template< typename T >
@@ -446,6 +449,19 @@ namespace detail
             .pCRT                  = nullptr,
             .pVHS                  = nullptr,
             .pDither               = nullptr,
+        };
+    };
+
+    template<>
+    struct DefaultParams< RgDrawFrameCustomPassParams >
+    {
+        constexpr static auto sType = detail::TypeToStructureType< RgDrawFrameCustomPassParams >;
+
+        constexpr static RgDrawFrameCustomPassParams value = {
+            .sType       = sType,
+            .pNext       = nullptr,
+            .pfnCallback = nullptr,
+            .pUserData   = nullptr,
         };
     };
 
