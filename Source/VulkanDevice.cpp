@@ -1179,37 +1179,15 @@ void RTGL1::VulkanDevice::EndFrame( VkCommandBuffer cmd, FramebufferImageIndex r
     const uint32_t    frameIndex        = currentFrameState.GetFrameIndex();
     const VkSemaphore initFrameFinished = currentFrameState.GetSemaphoreForWaitAndRemove();
 
-    // present debug window
+    // present debug window (plan B, 2026-11-20): the dev window now uses its
+    // own DXGI/D3D12 swapchain (DebugWindows_DX12) and calls Present() itself,
+    // so content is visible in Remote Desktop sessions. No more Vulkan
+    // vkQueuePresentKHR / debugFinishedSemaphores for the dev window.
 #ifdef RG_USE_IMGUI
     if( debugWindows && !debugWindows->IsMinimized() )
     {
-        VkCommandBuffer debugCmd = cmdManager->StartGraphicsCmd();
-        debugWindows->SubmitForFrame( debugCmd, frameIndex );
-
-        VkSemaphore towait[] = {
-            debugWindows->GetSwapchainImageAvailableSemaphore_Binary( frameIndex ),
-        };
-        cmdManager->Submit_Binary( //
-            debugCmd,
-            towait,
-            debugFinishedSemaphores[ frameIndex ], // signal
-            VK_NULL_HANDLE );
-
-        VkResult       r       = VK_SUCCESS;
-        VkSwapchainKHR sw      = debugWindows->GetSwapchainHandle();
-        uint32_t       swIndex = debugWindows->GetSwapchainCurrentImageIndex();
-
-        auto presentInfo = VkPresentInfoKHR{
-            .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-            .waitSemaphoreCount = 1,
-            .pWaitSemaphores    = &debugFinishedSemaphores[ frameIndex ],
-            .swapchainCount     = 1,
-            .pSwapchains        = &sw,
-            .pImageIndices      = &swIndex,
-            .pResults           = &r,
-        };
-        vkQueuePresentKHR( queues->GetGraphics(), &presentInfo );
-        debugWindows->OnQueuePresent( r );
+        // 'cmd' is unused by the D3D12 path; pass a null handle.
+        debugWindows->SubmitForFrame( VK_NULL_HANDLE, frameIndex );
     }
 #endif
 

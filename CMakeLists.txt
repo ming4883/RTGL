@@ -136,6 +136,7 @@ if (RG_WITH_DX12)
         "Source/FSR3_DX12.cpp"
         "Source/DX12_Swapchain.cpp"
         "Source/DX12_Vulkan.cpp"
+        "Source/DebugWindows_DX12.cpp"
     )
 endif()
 
@@ -218,10 +219,16 @@ if (RG_WITH_IMGUI)
         ${ImGuiSourceFolder}/imgui.cpp
         ${ImGuiSourceFolder}/backends/imgui_impl_vulkan.cpp
         ${ImGuiSourceFolder}/backends/imgui_impl_glfw.cpp
+        ${ImGuiSourceFolder}/backends/imgui_impl_dx12.cpp
     )
     target_include_directories(ImGui PUBLIC ${ImGuiSourceFolder} ${ImGuiSourceFolder}/backends)
     # Use Vulkan and GLFW as ImGui backend
     target_link_libraries(ImGui PUBLIC Vulkan)
+    # imgui_impl_dx12.cpp (plan B, dev DXGI window) needs the D3D12 libs for
+    # D3DCompile / dxgi GUIDs. Harmless when RG_WITH_DX12 is OFF (guarded).
+    if (RG_WITH_DX12)
+        target_link_libraries(ImGui PRIVATE D3D12)
+    endif()
     set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)

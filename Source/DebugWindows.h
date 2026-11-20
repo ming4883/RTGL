@@ -7,9 +7,6 @@
 // copies of the Software, and to permit persons to whom the Software is
 // furnished to do so, subject to the following conditions:
 //
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
-//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 // IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 // FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -21,15 +18,29 @@
 #pragma once
 
 #include "Common.h"
-#include "CommandBufferManager.h"
-#include "DebugWindows_Swapchain.h"
+#include "DebugWindows_DX12.h"
+
+#include <memory>
 
 struct GLFWwindow;
 
 namespace RTGL1
 {
+class CommandBufferManager;
 
-class DebugWindows final : public ISwapchainDependency
+
+// ImGui developer window.
+//
+// Plan B (2026-11-20): the window is now presented through DXGI via
+// DebugWindows_DX12 (D3D12 ImGui backend + a dedicated IDXGISwapChain on the
+// dev HWND). Previously it used its own native-Vulkan VkSwapchainKHR, which is
+// invisible in Remote Desktop sessions (only the DXGI/DWM present chain is
+// captured there). The GLFW window is kept solely as the HWND + input source.
+//
+// The Vulkan handles passed to the constructor are kept for source
+// compatibility with VulkanDevice_Init.cpp but are no longer used for
+// presentation.
+class DebugWindows final
 {
 public:
     DebugWindows( VkInstance                               instance,
@@ -38,45 +49,30 @@ public:
                   uint32_t                                 queueFamiy,
                   VkQueue                                  queue,
                   std::shared_ptr< CommandBufferManager >& cmdManager );
-    ~DebugWindows() override;
+    ~DebugWindows();
 
     DebugWindows( const DebugWindows& other )                = delete;
     DebugWindows( DebugWindows&& other ) noexcept            = delete;
     DebugWindows& operator=( const DebugWindows& other )     = delete;
     DebugWindows& operator=( DebugWindows&& other ) noexcept = delete;
 
-    // TODO: remove
+    // Kept for source compatibility; no-op now (no swapchain subscribers).
     void Init( const std::shared_ptr< DebugWindows >& self );
 
     bool PrepareForFrame( uint32_t frameIndex, bool vsync );
+    // 'cmd' is unused (kept for signature compatibility). All ImGui rendering
+    // happens on the D3D12 queue inside DebugWindows_DX12.
     void SubmitForFrame( VkCommandBuffer cmd, uint32_t frameIndex );
-    void OnQueuePresent( VkResult queuePresentResult );
-
-    void OnSwapchainCreate( const DebugWindows_Swapchain* pSwapchain ) override;
-    void OnSwapchainDestroy() override;
-
-    VkSwapchainKHR GetSwapchainHandle() const;
-    uint32_t       GetSwapchainCurrentImageIndex() const;
-    VkSemaphore    GetSwapchainImageAvailableSemaphore_Binary( uint32_t frameIndex ) const;
 
     void SetAlwaysOnTop( bool onTop );
     bool IsMinimized() const { return isMinimized; }
 
 private:
-    VkDevice device;
+    GLFWwindow*                       customWindow{ nullptr };
+    std::unique_ptr< DebugWindows_DX12 > dx12;
 
-    GLFWwindow*                               customWindow;
-    VkSurfaceKHR                              customSurface;
-    std::unique_ptr< DebugWindows_Swapchain > customSwapchain;
-    VkSemaphore                               swapchainImageAvailable[ MAX_FRAMES_IN_FLIGHT ];
-
-    VkDescriptorPool             descPool;
-    VkRenderPass                 renderPass;
-    std::vector< VkFramebuffer > framebuffers;
-
-    bool alwaysOnTop;
-
-    bool isMinimized;
+    bool alwaysOnTop{ false };
+    bool isMinimized{ false };
 };
 
 }

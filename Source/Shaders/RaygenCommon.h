@@ -454,7 +454,7 @@ Reservoir calcInitialReservoir(uint seed, uint salt, const Surface surf, const v
         // OBB culling in `sampleLight()`, out-of-box lights immediately return 0 while
         // every light whose OBB covers `surf.position` is guaranteed to be evaluated with
         // ZERO candidate-selection variance!
-        #if LIGHT_SAMPLE_METHOD == LIGHT_SAMPLE_METHOD_INITIAL
+        #if (LIGHT_SAMPLE_METHOD == LIGHT_SAMPLE_METHOD_INITIAL) || (LIGHT_SAMPLE_METHOD == LIGHT_SAMPLE_METHOD_INDIR)
         if (globalUniform.lightCount <= 64u)
         {
             for (uint i = 0u; i < globalUniform.lightCount; i++)
@@ -504,7 +504,7 @@ Reservoir calcInitialReservoir(uint seed, uint salt, const Surface surf, const v
     }
     normalizeReservoir(dirLightReservoir, 1);
 
-    #if LIGHT_SAMPLE_METHOD == LIGHT_SAMPLE_METHOD_INITIAL
+    #if (LIGHT_SAMPLE_METHOD == LIGHT_SAMPLE_METHOD_INITIAL) || (LIGHT_SAMPLE_METHOD == LIGHT_SAMPLE_METHOD_INDIR)
     if (isReservoirValid(regularReservoir))
     {
         LightSample lightSample = sampleLight(lightSources[regularReservoir.selected], surf.position, pointRnd);
@@ -676,7 +676,16 @@ Reservoir selectLight_Uniform(uint seed)
     return r;
 }
 
-// Select light in world-space for light bounces
+// Select light in world-space for light bounces.
+//
+// DUDE-inspired fix (2026-11-20): GI selects lights with a deterministic
+// exhaustive RIS over all scene lights (calcInitialReservoir, see the INDIR
+// branch inside it), and Light.h::sampleLight evaluates them as physical
+// CONTINUOUS emitters in the INDIR build (no tight-OBB binary clip). This is
+// the world-space, deterministic light transport that replaces the old
+// 8-blind-sample + screen-space-reservoir-reuse approach (stage "C"), which
+// could not help because the bounce hit point is outside the lights' authored
+// OBBs. Direct-light ReSTIR and artistic light shapes are untouched.
 Reservoir selectLight_Indir(uint seed, const Surface surf, const vec2 pointRnd)
 {
     return calcInitialReservoir(seed, RANDOM_SALT_LIGHT_CHOOSE_INDIRECT_BASE, surf, pointRnd);

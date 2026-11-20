@@ -430,6 +430,74 @@ vec3 evalLightBoundsAndCookie( const ShLightEncoded encoded, const vec3 surfPosi
 
 LightSample sampleLight(const ShLightEncoded encoded, const vec3 surfPosition, const vec2 pointRnd)
 {
+#if LIGHT_SAMPLE_METHOD == LIGHT_SAMPLE_METHOD_INDIR
+    // ------------------------------------------------------------------------
+    // INDIRECT (GI) LIGHT EVALUATION -- DUDE-inspired (2026-11-20).
+    //
+    // The direct-light path deliberately reproduces Doom 3's ARTISTIC light
+    // volumes: a tight OBB/frustum (boundsFlags & 1) with cookie + falloff,
+    // clipped to exactly zero outside [0,1] (evalLightBoundsAndCookie -> this
+    // function returning emptyLightSample() with dw/color = 0). That is correct
+    // for camera-visible shading, but WRONG for light transport: a bounce ray
+    // lands on a SECOND surface that is usually outside every light's authored
+    // box, so the indirect estimator was identically zero (diffuse indirect
+    // fully black) even in a small sealed room with a bright local light.
+    // Setting rt_light_useBoundsAndCookie 0 brought GI back, proving the OBB
+    // truncation -- not the energy, sky, or ReSTIR selection -- was the cause.
+    //
+    // DUDE (rtgi_bounce.glsl / rt_light_eval.glsl) never re-checks the artistic
+    // projection volume at a bounce vertex: it evaluates scene lights as
+    // physical emitters with a CONTINUOUS radial falloff (1 - dl/radius) and a
+    // soft frustum edge, over a deterministic full-light loop. We mirror that
+    // here for the GI build ONLY: sample the light as a physical point/sphere
+    // emitter using calcSolidAngleForSphere (continuous 1/d^2 through the solid
+    // angle), aimed at the exact light center, with NO OBB/cookie/falloff
+    // binary clip. The direct (LIGHT_SAMPLE_METHOD_DIRECT), initial-reservoir
+    // (INITIAL), volumetric and gradient builds keep the original OBB path
+    // verbatim below, so the artistic light shapes and ReSTIR DI are unchanged.
+    // ------------------------------------------------------------------------
+    LightSample s;
+    switch (encoded.lightType)
+    {
+        case LIGHT_TYPE_DIRECTIONAL:
+            s = sampleDirectionalLight( decodeAsDirectionalLight( encoded ), surfPosition, pointRnd );
+            break;
+        case LIGHT_TYPE_SPHERE:
+        {
+            const SphereLight l = decodeAsSphereLight( encoded );
+            const DirectionAndLength toCenter = calcDirectionAndLength( surfPosition, l.center );
+            s.position = l.center;          // exact center: noise-free shadow ray
+            s.color    = l.color;           // NO boundsAtten OBB clip
+            s.dw       = calcSolidAngleForSphere( l.radius, toCenter.len );  // continuous 1/d^2
+            break;
+        }
+        case LIGHT_TYPE_SPOT:
+        {
+            const SpotLight l = decodeAsSpotLight( encoded );
+            const DirectionAndLength toCenter = calcDirectionAndLength( surfPosition, l.center );
+            // Soft directional cosine (DUDE's getSpotFactor) instead of a hard
+            // projection-frustum clip. Bounces behind the apex still receive 0.
+            const float cosA   = max( dot( l.direction, -toCenter.dir ), 0.0 );
+            const float spot   = getSpotFactor( cosA, l.cosAngleInner, l.cosAngleOuter );
+            s.position = l.center;
+            s.color    = l.color * spot;
+            s.dw       = calcSolidAngleForSphere( l.radius, toCenter.len );
+            break;
+        }
+#if TRIANGLE_LIGHTS
+        case LIGHT_TYPE_TRIANGLE:
+            s = sampleTriangleLight( decodeAsTriangleLight( encoded ), surfPosition, pointRnd );
+            break;
+#endif
+        default:
+            return emptyLightSample();
+    }
+    return s;
+#else
+    // ------------------------------------------------------------------------
+    // DIRECT / INITIAL / VOLUME / GRADIENTS: original Doom 3 OBB + cookie +
+    // falloff light evaluation. Unchanged.
+    // ------------------------------------------------------------------------
     vec3 boundsAtten = vec3( 1.0 );
     if( ( encoded.boundsFlags & 1u ) != 0u )
     {
@@ -474,6 +542,7 @@ LightSample sampleLight(const ShLightEncoded encoded, const vec3 surfPosition, c
 
     s.color *= boundsAtten;
     return s;
+#endif // LIGHT_SAMPLE_METHOD == LIGHT_SAMPLE_METHOD_INDIR
 }
 
 #endif // LIGHT_H_
